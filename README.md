@@ -98,5 +98,6 @@ Agent có tùy chọn tự chạy khi đăng nhập Windows. Bản này không p
 - Chưa có phản hồi: nền đen, nút bật tròn. Không phản hồi không đồng nghĩa chắc chắn PC đã tắt.
 - Đã xác nhận PC hoạt động: nền sáng, hai nút Sleep và Shutdown. Nếu chưa ghép Agent, các nút dẫn tới ghép nối.
 - App kiểm tra trạng thái mỗi 15 giây khi ở foreground và khi quay lại app. Sau lệnh Wake vẫn kiểm tra sau khoảng 10 giây.
+- Nếu kiểm tra sau Wake chưa nhận phản hồi, popup hỏi **PC đã bật chưa?**: **Đã bật** chuyển Home sang nền sáng; **Chưa bật** mở Trợ giúp. Xác nhận thủ công có nhãn riêng, giữ trong phiên app cho đến khi có phản hồi thật hoặc Agent nhận lệnh Sleep/Shutdown; không bị xóa bởi lần kiểm tra không phản hồi tiếp theo.
 - Tab Hoạt động được thay bằng Danh sách; lịch sử truy cập từ menu.
 - Ảnh `docs/home-dark.png`, `docs/home-light.png`, `docs/device-list.png` được render từ widget thật với trạng thái giả lập để kiểm tra bố cục, không phải bằng chứng PC vật lý bật/tắt.

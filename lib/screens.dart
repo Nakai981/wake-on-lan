@@ -34,6 +34,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   AgentClient get agent => widget.agentClient ?? const AgentClient();
   final Set<String> powerBusy = {};
   final Set<String> onlineIds = {};
+  final Set<String> manuallyOnline = {};
   Timer? statusTimer;
 
   Future<bool> pcReachable(Pc pc) async {
@@ -104,7 +105,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
         return;
       }
-      setState(() => statuses[pc.id] = 'Đã gửi lệnh $label');
+      setState(() {
+        manuallyOnline.remove(pc.id);
+        statuses[pc.id] = 'Đã gửi lệnh $label';
+      });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
@@ -212,8 +216,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (!waking.contains(pc.id)) {
             statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác định';
             if (online) {
+              manuallyOnline.remove(pc.id);
               onlineIds.add(pc.id);
-            } else {
+            } else if (!manuallyOnline.contains(pc.id)) {
               onlineIds.remove(pc.id);
             }
           }
@@ -223,7 +228,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           lan = null;
-          onlineIds.clear();
+          onlineIds.removeWhere((id) => !manuallyOnline.contains(id));
           for (final pc in pcs) {
             statuses[pc.id] = 'Chưa xác định';
           }
@@ -275,6 +280,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (waking.contains(pc.id)) return;
     setState(() {
       waking.add(pc.id);
+      manuallyOnline.remove(pc.id);
       statuses[pc.id] = 'Đang gửi tín hiệu…';
     });
     try {
@@ -342,9 +348,40 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           'Chưa kiểm tra được kết nối. Kiểm tra Wi-Fi và quyền mạng cục bộ.';
     }
     if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
+    var manual = false;
+    if (!online) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            icon: const Icon(Icons.desktop_windows_rounded, color: accent),
+            title: const Text('PC đã bật chưa?'),
+            content: Text(
+              'App chưa nhận được phản hồi từ ${pc.name}. Hãy kiểm tra máy và xác nhận trạng thái.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Chưa bật'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Đã bật'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
+      manual = confirmed == true;
+      online = manual;
+    }
     setState(() {
       waking.remove(pc.id);
       if (online) {
+        if (manual) manuallyOnline.add(pc.id);
         onlineIds.add(pc.id);
       } else {
         onlineIds.remove(pc.id);
@@ -358,12 +395,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
     notifyWake(
       online
-          ? '${pc.name} đã khởi động thành công — PC đang phản hồi.'
+          ? manual
+                ? 'Đã cập nhật: ${pc.name} đã bật theo xác nhận của bạn.'
+                : '${pc.name} đã khởi động thành công — PC đang phản hồi.'
           : 'Chưa xác nhận được ${pc.name} đã bật. Xem hướng dẫn kiểm tra.',
     );
     try {
       await widget.store.log(
-        '${online ? 'PC đã phản hồi' : 'Chưa xác nhận khởi động'} · ${pc.name}',
+        '${manual
+            ? 'Người dùng xác nhận đã bật'
+            : online
+            ? 'PC đã phản hồi'
+            : 'Chưa xác nhận khởi động'} · ${pc.name}',
       );
     } catch (_) {
       /* Keep the observed result. */
@@ -795,6 +838,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final busy =
         pc != null && (waking.contains(pc.id) || powerBusy.contains(pc.id));
     return LayoutBuilder(
+      key: ValueKey('home-${pc?.id}-$online'),
       builder: (context, constraints) => SingleChildScrollView(
         key: ValueKey('control-${pc?.id}-$online'),
         child: ConstrainedBox(
@@ -851,7 +895,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   const SizedBox(height: 10),
                   Text(
                     online
-                        ? 'Đang hoạt động'
+                        ? manuallyOnline.contains(pc.id)
+                              ? 'Đã bật · bạn đã xác nhận'
+                              : 'Đang hoạt động'
                         : waking.contains(pc.id)
                         ? (statuses[pc.id] ?? 'Đang gửi tín hiệu…')
                         : refreshing
@@ -862,7 +908,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 48),
                   if (!online) ...[
-                    SizedBox(
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 450),
+                      curve: Curves.easeOutCubic,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: busy ? accent : Colors.white12,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (busy ? accent : Colors.white).withValues(
+                              alpha: .12,
+                            ),
+                            blurRadius: busy ? 56 : 32,
+                            spreadRadius: busy ? 8 : 0,
+                          ),
+                        ],
+                      ),
                       width: 152,
                       height: 152,
                       child: FilledButton(
@@ -875,11 +939,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           disabledBackgroundColor: const Color(0xFF202020),
                           disabledForegroundColor: Colors.white38,
                         ),
-                        child: Icon(
-                          busy
-                              ? Icons.hourglass_top_rounded
-                              : Icons.power_settings_new_rounded,
-                          size: 58,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 350),
+                          child: Icon(
+                            busy
+                                ? Icons.wifi_tethering_rounded
+                                : Icons.power_settings_new_rounded,
+                            key: ValueKey(busy),
+                            size: 54,
+                          ),
                         ),
                       ),
                     ),

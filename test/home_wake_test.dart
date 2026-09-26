@@ -20,8 +20,9 @@ class WakeNetwork extends NetworkService {
 }
 
 void main() {
-  for (final online in [true, false]) {
-    testWidgets('Home sends immediately then checks at 10s: online=$online', (
+  for (final outcome in ['online', 'manual', 'help']) {
+    final online = outcome == 'online';
+    testWidgets('Home sends immediately then checks at 10s: $outcome', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(430, 932);
@@ -68,6 +69,22 @@ void main() {
         expect(find.textContaining('đã khởi động thành công'), findsOneWidget);
         expect(find.text('Studio PC'), findsOneWidget);
       } else {
+        expect(find.text('PC đã bật chưa?'), findsOneWidget);
+        expect(find.text('Luôn có lời giải'), findsNothing);
+        await tester.tap(
+          find.text(outcome == 'manual' ? 'Đã bật' : 'Chưa bật'),
+        );
+        await tester.pumpAndSettle();
+        if (outcome == 'manual') {
+          expect(find.text('Sleep'), findsOneWidget);
+          expect(find.text('Shutdown'), findsOneWidget);
+          expect(find.text('Đã bật · bạn đã xác nhận'), findsOneWidget);
+          await tester.pump(const Duration(seconds: 16));
+          await tester.pumpAndSettle();
+          expect(find.text('Sleep'), findsOneWidget);
+          expect(find.text('PC đã bật chưa?'), findsNothing);
+          return;
+        }
         expect(find.text('Luôn có lời giải'), findsOneWidget);
         expect(
           find.textContaining(
