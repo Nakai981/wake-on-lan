@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'main.dart';
 import 'design.dart';
 import 'models.dart';
 import 'services.dart';
 import 'setup.dart';
+import 'agent_client.dart';
+import 'agent_pair.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -16,12 +19,141 @@ void message(BuildContext context, String text) =>
 class HomePage extends StatefulWidget {
   final DeviceStore store;
   final NetworkService net;
-  const HomePage({super.key, required this.store, required this.net});
+  final AgentClient? agentClient;
+  const HomePage({
+    super.key,
+    required this.store,
+    required this.net,
+    this.agentClient,
+  });
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  AgentClient get agent => widget.agentClient ?? const AgentClient();
+  final Set<String> powerBusy = {};
+  final Set<String> onlineIds = {};
+  Timer? statusTimer;
+
+  Future<bool> pcReachable(Pc pc) async {
+    if (!pc.agentPaired) return widget.net.reachable(pc.ip);
+    try {
+      return await agent.command(pc, 'status') == 'online';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> pairAgent(Pc pc) async {
+    final paired = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => AgentPairPage(pc: pc)),
+    );
+    if (!mounted || paired != true) return;
+    try {
+      await persist(
+        pcs.map((p) => p.id == pc.id ? p.copy(agentPaired: true) : p).toList(),
+      );
+      if (mounted) {
+        message(
+          context,
+          'Đã ghép nối. Bạn có thể Sleep hoặc tắt PC ngay trên Home.',
+        );
+      }
+    } catch (_) {
+      if (mounted) message(context, 'Chưa lưu được ghép nối. Hãy thử lại.');
+    }
+  }
+
+  Future<void> power(Pc pc, String command) async {
+    if (powerBusy.contains(pc.id) || waking.contains(pc.id)) return;
+    final label = command == 'sleep' ? 'Sleep' : 'Tắt máy';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$label ${pc.name}?'),
+        content: Text(
+          command == 'shutdown'
+              ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ 10 giây để bạn có thể hủy.'
+              : 'PC sẽ chuyển sang Sleep sau 10 giây. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(label),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => powerBusy.add(pc.id));
+    try {
+      final result = await agent.command(pc, command);
+      if (!mounted) return;
+      if (result != 'accepted') {
+        message(
+          context,
+          result == 'busy'
+              ? 'PC đang có một lệnh chờ. Hủy lệnh trước khi gửi lại.'
+              : 'Agent chưa nhận lệnh.',
+        );
+        return;
+      }
+      setState(() => statuses[pc.id] = 'Đã gửi lệnh $label');
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 10),
+            content: Text('PC đã nhận lệnh $label, sẽ thực hiện sau 10 giây.'),
+            action: SnackBarAction(
+              label: 'Hủy lệnh',
+              onPressed: () => cancelPower(pc),
+            ),
+          ),
+        );
+      try {
+        await widget.store.log('Đã gửi lệnh $label · ${pc.name}');
+      } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        message(
+          context,
+          'Chưa xác nhận được lệnh. Kiểm tra Agent, IP và mã ghép nối. Nếu mất kết nối sau khi gửi, hãy kiểm tra hoặc hủy trên PC.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => powerBusy.remove(pc.id));
+    }
+  }
+
+  Future<void> cancelPower(Pc pc) async {
+    try {
+      final result = await agent.command(pc, 'cancel');
+      if (mounted) {
+        message(
+          context,
+          result == 'cancelled'
+              ? 'Đã hủy lệnh còn đang chờ trên PC.'
+              : 'Chưa hủy được lệnh.',
+        );
+      }
+      if (mounted) refresh();
+    } catch (_) {
+      if (mounted) {
+        message(
+          context,
+          'Không liên lạc được với Agent để hủy. Lệnh có thể đã thực hiện.',
+        );
+      }
+    }
+  }
+
   List<Pc> pcs = [];
   final Map<String, String> statuses = {};
   Lan? lan;
@@ -37,10 +169,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       storageError = true;
     }
     refresh();
+    statusTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        refresh();
+      }
+    });
   }
 
   @override
   void dispose() {
+    statusTimer?.cancel();
+    for (final timer in wakeTimers.values) {
+      timer.cancel();
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -59,21 +200,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() => lan = current);
       for (final pc in List<Pc>.of(pcs)) {
         if (!mounted) return;
+        if (waking.contains(pc.id)) continue;
         setState(() => statuses[pc.id] = 'Đang kiểm tra…');
         final online =
             current != null &&
             pc.ip.isNotEmpty &&
             current.contains(pc.ip) &&
-            await widget.net.reachable(pc.ip);
+            await pcReachable(pc);
         if (!mounted) return;
-        setState(
-          () => statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác định',
-        );
+        setState(() {
+          if (!waking.contains(pc.id)) {
+            statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác định';
+            if (online) {
+              onlineIds.add(pc.id);
+            } else {
+              onlineIds.remove(pc.id);
+            }
+          }
+        });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
           lan = null;
+          onlineIds.clear();
           for (final pc in pcs) {
             statuses[pc.id] = 'Chưa xác định';
           }
@@ -110,30 +260,125 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  final Set<String> waking = {};
+  final Map<String, Timer> wakeTimers = {};
+  String? wakeHelp;
+
+  void notifyWake(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
   Future<void> wake(Pc pc) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => WakePage(
-          pc: pc,
-          net: widget.net,
-          onSent: () async {
-            await persist(
-              pcs
-                  .map(
-                    (p) => p.id == pc.id ? p.copy(lastWake: DateTime.now()) : p,
-                  )
-                  .toList(),
-            );
-            await widget.store.log('Đã gửi tín hiệu · ${pc.name}');
-          },
-          onOnline: () => widget.store.log('Đã nhận phản hồi · ${pc.name}'),
-        ),
-      ),
+    if (waking.contains(pc.id)) return;
+    setState(() {
+      waking.add(pc.id);
+      statuses[pc.id] = 'Đang gửi tín hiệu…';
+    });
+    try {
+      final current = await widget.net.network();
+      if (!mounted) return;
+      if (current == null) {
+        throw StateError('Kết nối Wi-Fi cùng mạng với PC để bật máy.');
+      }
+      if (pc.network.isNotEmpty && pc.network != current.key) {
+        throw StateError(
+          'Mạng đã thay đổi. Mở Chi tiết / Quét lại để cập nhật máy.',
+        );
+      }
+      await widget.net.wake(pc, current);
+      if (!mounted) return;
+      setState(() => statuses[pc.id] = 'Đã gửi · kiểm tra sau 10 giây');
+      notifyWake('Đã gửi tín hiệu khởi động đến ${pc.name}.');
+      wakeTimers[pc.id] = Timer(
+        const Duration(seconds: 10),
+        () => checkWake(pc, current),
+      );
+      try {
+        await persist(
+          pcs
+              .map((p) => p.id == pc.id ? p.copy(lastWake: DateTime.now()) : p)
+              .toList(),
+        );
+        await widget.store.log('Đã gửi tín hiệu khởi động · ${pc.name}');
+      } catch (_) {
+        /* Sending succeeded even if local history cannot be saved. */
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        waking.remove(pc.id);
+        statuses[pc.id] = 'Chưa gửi được tín hiệu';
+      });
+      notifyWake(
+        error is StateError
+            ? error.message.toString()
+            : 'Chưa gửi được tín hiệu. Kiểm tra Wi-Fi và quyền mạng cục bộ.',
+      );
+    }
+  }
+
+  Future<void> checkWake(Pc pc, Lan sentNetwork) async {
+    wakeTimers.remove(pc.id);
+    if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
+    var online = false;
+    String? reason;
+    try {
+      final current = await widget.net.network();
+      if (pc.ip.isEmpty) {
+        reason = 'Máy chưa có IP để kiểm tra. Mở Chi tiết máy và bổ sung địa chỉ IP.';
+      } else if (current == null ||
+          current.key != sentNetwork.key ||
+          !current.contains(pc.ip)) {
+        reason = 'Kết nối mạng đã thay đổi hoặc IP của PC không cùng mạng.';
+      } else {
+        online = await pcReachable(pc)
+            .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      }
+    } catch (_) {
+      reason =
+          'Chưa kiểm tra được kết nối. Kiểm tra Wi-Fi và quyền mạng cục bộ.';
+    }
+    if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
+    setState(() {
+      waking.remove(pc.id);
+      if (online) {
+        onlineIds.add(pc.id);
+      } else {
+        onlineIds.remove(pc.id);
+      }
+      statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác nhận khởi động';
+      if (!online) {
+        wakeHelp =
+            '${pc.name}: đã gửi tín hiệu nhưng chưa xác nhận được máy đã khởi động sau khoảng 10 giây. ${reason ?? 'PC có thể cần thêm thời gian hoặc đang chặn kiểm tra kết nối.'}';
+        tab = 2;
+      }
+    });
+    notifyWake(
+      online
+          ? '${pc.name} đã khởi động thành công — PC đang phản hồi.'
+          : 'Chưa xác nhận được ${pc.name} đã bật. Xem hướng dẫn kiểm tra.',
     );
-    if (mounted) refresh();
+    try {
+      await widget.store.log(
+        '${online ? 'PC đã phản hồi' : 'Chưa xác nhận khởi động'} · ${pc.name}',
+      );
+    } catch (_) {
+      /* Keep the observed result. */
+    }
   }
 
   Future<void> action(String value, Pc pc) async {
+    if (value == 'pair') {
+      await pairAgent(pc);
+      return;
+    }
+    if (value == 'cancelPower') {
+      await cancelPower(pc);
+      return;
+    }
     if (value == 'edit') {
       await edit(pc);
       return;
@@ -168,6 +413,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         );
         if (yes == true) {
+          if (pc.agentPaired) await agent.forget(pc.id);
           await persist(pcs.where((p) => p.id != pc.id).toList());
         }
       }
@@ -175,8 +421,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) message(context, 'Không lưu được thay đổi. Hãy thử lại.');
     }
   }
-
-  bool favoritesOnly = false;
 
   Future<void> openMenu() async {
     final choice = await showModalBottomSheet<String>(
@@ -288,11 +532,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await edit();
       case 'devices':
         setState(() {
-          tab = 0;
-          favoritesOnly = false;
+          tab = 1;
         });
       case 'history':
-        setState(() => tab = 1);
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => Scaffold(
+              appBar: AppBar(title: const Text('Lịch sử hoạt động')),
+              body: history(),
+            ),
+          ),
+        );
       case 'help':
         setState(() => tab = 2);
       case 'refresh':
@@ -357,6 +608,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               const SizedBox(height: 24),
               menuRow(
                 ctx,
+                'pair',
+                Icons.link_rounded,
+                'Ghép nối Windows Agent',
+                pc.agentPaired
+                    ? 'Ghép nối lại / cập nhật mã'
+                    : 'Bật tính năng Sleep và tắt máy',
+              ),
+              if (pc.agentPaired)
+                menuRow(
+                  ctx,
+                  'cancelPower',
+                  Icons.cancel_outlined,
+                  'Hủy lệnh nguồn',
+                  'Hủy lệnh đang chờ trên PC',
+                ),
+              menuRow(
+                ctx,
                 'edit',
                 Icons.tune_rounded,
                 'Chi tiết / Quét lại',
@@ -374,7 +642,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'favorite',
                 Icons.star_outline_rounded,
                 'Đặt làm máy mặc định',
-                'Luôn xuất hiện đầu danh sách',
+                'Hiển thị máy này trên Home',
               ),
               ListTile(
                 shape: RoundedRectangleBorder(
@@ -401,154 +669,282 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted && choice != null) await action(choice, pc);
   }
 
+  Pc? get selectedPc {
+    for (final pc in pcs) {
+      if (pc.favorite) return pc;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sorted =
-        pcs
-            .where((p) => pcs.length < 2 || !favoritesOnly || p.favorite)
-            .toList()
-          ..sort((a, b) => (b.favorite ? 1 : 0).compareTo(a.favorite ? 1 : 0));
+    final pc = selectedPc;
+    final online = pc != null && onlineIds.contains(pc.id);
+    final dark = tab == 0 && !online;
+    final foreground = dark ? Colors.white : navy;
+    final background = dark ? Colors.black : paper;
     return Scaffold(
+      backgroundColor: background,
       appBar: AppBar(
-        toolbarHeight: 64,
-        titleSpacing: 22,
-        title: FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: navy,
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: const Icon(
-                  Icons.power_settings_new_rounded,
-                  color: mint,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'wake',
-                style: TextStyle(
-                  fontSize: 25,
-                  letterSpacing: -1,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const Text(
-                ' my pc',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w400,
-                  color: muted,
-                ),
-              ),
-            ],
+        backgroundColor: background,
+        foregroundColor: foreground,
+        systemOverlayStyle: dark
+            ? SystemUiOverlayStyle.light.copyWith(
+                systemNavigationBarColor: Colors.black,
+              )
+            : SystemUiOverlayStyle.dark,
+        toolbarHeight: 60,
+        title: Text(
+          tab == 0
+              ? 'wake'
+              : tab == 1
+              ? 'Danh sách máy'
+              : 'Trợ giúp',
+          style: TextStyle(
+            color: foreground,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
           ),
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 18),
-            child: IconButton.filledTonal(
-              tooltip: 'Mở menu',
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: navy,
-              ),
-              onPressed: openMenu,
-              icon: const Icon(Icons.grid_view_rounded, size: 21),
+          IconButton(
+            tooltip: 'Kiểm tra lại',
+            onPressed: refreshing ? null : refresh,
+            icon: Icon(
+              Icons.refresh_rounded,
+              color: dark ? Colors.white60 : muted,
             ),
           ),
+          IconButton(
+            tooltip: 'Mở menu',
+            onPressed: openMenu,
+            icon: Icon(Icons.more_horiz_rounded, color: foreground),
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
-        bottom: false,
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
+            constraints: const BoxConstraints(maxWidth: 650),
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
+              duration: const Duration(milliseconds: 300),
               child: tab == 1
-                  ? history()
+                  ? deviceList()
                   : tab == 2
-                  ? const HelpContent(key: ValueKey('help'))
-                  : home(sorted),
+                  ? HelpContent(key: const ValueKey('help'), notice: wakeHelp)
+                  : controlHome(pc, online),
             ),
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFFE1E8F0)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x080F1238),
-                  blurRadius: 24,
-                  offset: Offset(0, 6),
-                ),
-              ],
+      bottomNavigationBar: NavigationBar(
+        height: 68,
+        backgroundColor: background,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: dark ? const Color(0xFF1D1D1D) : soft,
+        selectedIndex: tab,
+        onDestinationSelected: (value) => setState(() => tab = value),
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => TextStyle(
+            fontFamily: uiFont,
+            fontSize: 11,
+            color: dark
+                ? (states.contains(WidgetState.selected)
+                      ? Colors.white
+                      : Colors.white54)
+                : (states.contains(WidgetState.selected) ? accent : muted),
+          ),
+        ),
+        destinations: [
+          NavigationDestination(
+            icon: Icon(
+              Icons.power_settings_new_rounded,
+              color: dark ? Colors.white70 : muted,
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: NavigationBar(
-                height: 64,
-                selectedIndex: tab,
-                onDestinationSelected: (v) => setState(() => tab = v),
-                backgroundColor: Colors.white,
-                indicatorColor: soft,
-                labelTextStyle: WidgetStateProperty.resolveWith(
-                  (states) => TextStyle(
-                    fontFamily: uiFont,
-                    fontSize: 11,
-                    fontWeight: states.contains(WidgetState.selected)
-                        ? FontWeight.w700
-                        : FontWeight.w500,
-                    color: states.contains(WidgetState.selected)
-                        ? accent
-                        : muted,
+            selectedIcon: Icon(
+              Icons.power_settings_new_rounded,
+              color: foreground,
+            ),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(
+              Icons.dns_outlined,
+              color: dark ? Colors.white54 : muted,
+            ),
+            selectedIcon: const Icon(Icons.dns_rounded, color: accent),
+            label: 'Danh sách',
+          ),
+          NavigationDestination(
+            icon: Icon(
+              Icons.help_outline_rounded,
+              color: dark ? Colors.white54 : muted,
+            ),
+            selectedIcon: const Icon(Icons.help_rounded, color: accent),
+            label: 'Trợ giúp',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget controlHome(Pc? pc, bool online) {
+    final foreground = online ? navy : Colors.white;
+    final secondary = online ? muted : Colors.white54;
+    final busy =
+        pc != null && (waking.contains(pc.id) || powerBusy.contains(pc.id));
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        key: ValueKey('control-${pc?.id}-$online'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (pc == null) ...[
+                  const Icon(
+                    Icons.star_outline_rounded,
+                    color: Colors.white38,
+                    size: 44,
                   ),
-                ),
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.space_dashboard_outlined, size: 22),
-                    selectedIcon: Icon(
-                      Icons.space_dashboard_rounded,
-                      color: accent,
-                      size: 22,
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Chọn một máy cho Home',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 23,
+                      fontWeight: FontWeight.w600,
                     ),
-                    label: 'Máy tính',
                   ),
-                  NavigationDestination(
-                    icon: Icon(Icons.access_time_rounded, size: 22),
-                    selectedIcon: Icon(
-                      Icons.history_rounded,
-                      color: accent,
-                      size: 22,
-                    ),
-                    label: 'Hoạt động',
+                  const SizedBox(height: 12),
+                  Text(
+                    storageError
+                        ? 'Không đọc được dữ liệu đã lưu. Hãy khởi động lại app.'
+                        : 'Đánh dấu sao một máy trong Danh sách\nđể điều khiển ngay tại đây.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: secondary, height: 1.7),
                   ),
-                  NavigationDestination(
-                    icon: Icon(Icons.auto_stories_outlined, size: 22),
-                    selectedIcon: Icon(
-                      Icons.auto_stories_rounded,
-                      color: accent,
-                      size: 22,
+                  const SizedBox(height: 28),
+                  OutlinedButton(
+                    onPressed: () => setState(() => tab = 1),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24),
                     ),
-                    label: 'Trợ giúp',
+                    child: const Text('Chọn máy tính'),
+                  ),
+                ] else ...[
+                  Text(
+                    pc.name,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -.6,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    online
+                        ? 'Đang hoạt động'
+                        : waking.contains(pc.id)
+                        ? (statuses[pc.id] ?? 'Đang gửi tín hiệu…')
+                        : refreshing
+                        ? 'Đang kiểm tra…'
+                        : 'Chưa nhận được phản hồi',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: secondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 48),
+                  if (!online) ...[
+                    SizedBox(
+                      width: 152,
+                      height: 152,
+                      child: FilledButton(
+                        onPressed: busy ? null : () => wake(pc),
+                        style: FilledButton.styleFrom(
+                          shape: const CircleBorder(),
+                          padding: EdgeInsets.zero,
+                          backgroundColor: const Color(0xFFF4F7FA),
+                          foregroundColor: Colors.black,
+                          disabledBackgroundColor: const Color(0xFF202020),
+                          disabledForegroundColor: Colors.white38,
+                        ),
+                        child: Icon(
+                          busy
+                              ? Icons.hourglass_top_rounded
+                              : Icons.power_settings_new_rounded,
+                          size: 58,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Text(
+                      busy ? 'ĐÃ GỬI TÍN HIỆU' : 'BẬT PC',
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 12,
+                        letterSpacing: 2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: homePowerButton(
+                            pc,
+                            'sleep',
+                            Icons.bedtime_outlined,
+                            'Sleep',
+                            busy,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: homePowerButton(
+                            pc,
+                            'shutdown',
+                            Icons.power_settings_new_rounded,
+                            'Shutdown',
+                            busy,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (!pc.agentPaired) ...[
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Ghép nối Windows Agent để dùng Sleep và Shutdown.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: muted,
+                          fontSize: 12,
+                          height: 1.6,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => pairAgent(pc),
+                        child: const Text('Ghép nối Agent'),
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: 36),
+                  TextButton(
+                    onPressed: () => setState(() => tab = 1),
+                    style: TextButton.styleFrom(foregroundColor: secondary),
+                    child: const Text(
+                      'Đổi máy tính',
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ),
                 ],
-              ),
+              ],
             ),
           ),
         ),
@@ -556,136 +952,95 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget filterChip(String label, bool favorite) => ChoiceChip(
-    label: Text(label),
-    selected: favoritesOnly == favorite,
-    showCheckmark: false,
-    selectedColor: navy,
-    backgroundColor: Colors.white,
-    side: BorderSide.none,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    labelStyle: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.w600,
-      color: favoritesOnly == favorite ? Colors.white : muted,
-    ),
-    onSelected: (_) => setState(() => favoritesOnly = favorite),
-  );
-
-  Widget networkBar() => Container(
-    padding: const EdgeInsets.fromLTRB(12, 0, 4, 0),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: const Color(0xFFE1E8F0)),
-    ),
-    child: Row(
-      children: [
-        IconTile(
-          lan == null ? Icons.wifi_off_rounded : Icons.wifi_rounded,
-          size: 34,
-          background: lan == null
-              ? const Color(0xFFFFF5E2)
-              : const Color(0xFFE5F6F0),
-          color: lan == null
-              ? const Color(0xFF9B6813)
-              : const Color(0xFF138268),
-        ),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Text(
-            refreshing
-                ? 'Đang kiểm tra kết nối…'
-                : lan != null
-                ? 'Đã kết nối mạng Wi-Fi'
-                : 'Kết nối Wi-Fi cùng mạng với PC',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-        ),
-        IconButton(
-          tooltip: 'Kiểm tra lại',
-          onPressed: refreshing ? null : refresh,
-          icon: const Icon(Icons.refresh_rounded, size: 19, color: muted),
-        ),
-      ],
-    ),
-  );
-
-  Widget home(List<Pc> sorted) => RefreshIndicator(
-    onRefresh: refresh,
-    child: ListView(
-      key: const ValueKey('devices'),
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Máy tính của bạn',
-                style: Theme.of(context).textTheme.headlineMedium
-                    ?.copyWith(fontSize: 23),
-              ),
-            ),
-            if (pcs.isNotEmpty)
-              IconButton(
-                tooltip: 'Thêm máy tính',
-                onPressed: storageError ? null : () => edit(),
-                icon: const Icon(Icons.add_rounded, color: accent),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        networkBar(),
-        const SizedBox(height: 16),
-        if (storageError)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 16),
-            child: Text(
-              'Không đọc được dữ liệu đã lưu. Hãy khởi động lại app; dữ liệu gốc chưa bị thay đổi.',
-            ),
-          ),
-        if (pcs.isEmpty)
-          empty()
-        else ...[
-          if (pcs.length > 1) ...[
-            Wrap(
-              spacing: 8,
-              children: [
-                filterChip('Tất cả', false),
-                filterChip('Yêu thích', true),
-              ],
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (sorted.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Chưa có máy yêu thích.',
-                      style: TextStyle(color: muted),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(() => favoritesOnly = false),
-                      child: const Text('Xem tất cả máy'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ...sorted.map(
-            (pc) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: deviceCard(pc),
-            ),
+  Widget homePowerButton(
+    Pc pc,
+    String command,
+    IconData icon,
+    String label,
+    bool busy,
+  ) => SizedBox(
+    height: 136,
+    child: FilledButton(
+      onPressed: busy
+          ? null
+          : () => pc.agentPaired ? power(pc, command) : pairAgent(pc),
+      style: FilledButton.styleFrom(
+        backgroundColor: command == 'sleep' ? Colors.white : navy,
+        foregroundColor: command == 'sleep' ? navy : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 34),
+          const SizedBox(height: 18),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
         ],
-      ],
+      ),
     ),
+  );
+
+  Widget deviceList() => ListView(
+    key: const ValueKey('devices'),
+    padding: const EdgeInsets.all(20),
+    children: [
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Một dấu sao. Một máy trên Home.',
+              style: TextStyle(color: muted, fontSize: 12),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Thêm máy tính',
+            onPressed: storageError ? null : () => edit(),
+            icon: const Icon(Icons.add_rounded, color: accent),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      if (pcs.isEmpty) empty(),
+      ...pcs.map(
+        (pc) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.fromLTRB(10, 12, 8, 12),
+              leading: IconButton(
+                tooltip: pc.favorite
+                    ? 'Máy đang hiển thị trên Home'
+                    : 'Chọn ${pc.name} cho Home',
+                onPressed: () => action('favorite', pc),
+                icon: Icon(
+                  pc.favorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: pc.favorite ? accent : muted,
+                ),
+              ),
+              title: Text(
+                pc.name,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                statuses[pc.id] ?? 'Chưa xác định',
+                style: const TextStyle(fontSize: 11, color: muted),
+              ),
+              trailing: IconButton(
+                tooltip: 'Tùy chọn máy',
+                onPressed: () => deviceMenu(pc),
+                icon: const Icon(Icons.more_horiz_rounded),
+              ),
+              onTap: pc.favorite
+                  ? () => setState(() => tab = 0)
+                  : () => edit(pc),
+            ),
+          ),
+        ),
+      ),
+    ],
   );
 
   Widget empty() => Container(
@@ -833,22 +1188,57 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => wake(pc),
+              onPressed: waking.contains(pc.id) || powerBusy.contains(pc.id)
+                  ? null
+                  : () => wake(pc),
               style: FilledButton.styleFrom(
                 backgroundColor: mint,
                 foregroundColor: navy,
                 minimumSize: const Size(48, 48),
               ),
               icon: const Icon(Icons.power_settings_new_rounded, size: 20),
-              label: const Text(
-                'BẬT PC',
-                style: TextStyle(
+              label: Text(
+                waking.contains(pc.id) ? 'ĐANG XỬ LÝ…' : 'BẬT PC',
+                style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   letterSpacing: .8,
                 ),
               ),
             ),
           ),
+          if (pc.agentPaired) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed:
+                        waking.contains(pc.id) || powerBusy.contains(pc.id)
+                        ? null
+                        : () => power(pc, 'sleep'),
+                    icon: const Icon(Icons.bedtime_outlined, size: 17),
+                    label: const Text('Sleep'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFB4C5D9),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed:
+                        waking.contains(pc.id) || powerBusy.contains(pc.id)
+                        ? null
+                        : () => power(pc, 'shutdown'),
+                    icon: const Icon(Icons.power_settings_new, size: 17),
+                    label: const Text('Tắt máy'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFFDA4AF),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (pc.lastWake != null) ...[
             const SizedBox(height: 10),
             Text(
@@ -1184,7 +1574,8 @@ class DiagnosticsPage extends StatelessWidget {
 
 class HelpContent extends StatelessWidget {
   final bool embedded;
-  const HelpContent({super.key, this.embedded = false});
+  final String? notice;
+  const HelpContent({super.key, this.embedded = false, this.notice});
   @override
   Widget build(BuildContext context) {
     const guides = {
@@ -1199,6 +1590,19 @@ class HelpContent extends StatelessWidget {
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (notice != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF5E2),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              notice!,
+              style: const TextStyle(color: Color(0xFF805510), height: 1.6),
+            ),
+          ),
         if (!embedded) ...[
           const SectionTitle(
             'Luôn có lời giải',

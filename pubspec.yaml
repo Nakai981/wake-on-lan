@@ -1,4 +1,4 @@
-﻿name: wake_my_pc
+name: wake_my_pc
 description: "Wake My PC: a local-first Wake-on-LAN companion for Android and iOS."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   network_info_plus: ^8.2.1
   shared_preferences: ^2.5.5
+  crypto: ^3.0.7
+  flutter_secure_storage: ^11.2.0
 
 dev_dependencies:
   flutter_test:

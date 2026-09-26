@@ -18,13 +18,22 @@ void main() {
   ) async {
     tester.view.physicalSize = const Size(430, 932);
     tester.view.devicePixelRatio = 1;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+    });
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
     final store = DeviceStore(await SharedPreferences.getInstance());
     await tester.pumpWidget(WakeApp(store: store, network: FakeNetwork()));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Danh sách'));
+    await tester.pumpAndSettle();
     expect(find.text('PC của bạn, trong tầm tay'), findsOneWidget);
+    if (find.text('Bắt đầu thiết lập').evaluate().isEmpty) {
+      await tester.tap(find.text('Danh sách'));
+      await tester.pumpAndSettle();
+    }
     await tester.ensureVisible(find.text('Bắt đầu thiết lập'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Bắt đầu thiết lập'));
@@ -46,12 +55,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('PC Gaming'), findsOneWidget);
     expect(store.read().single.mac, 'A4:BB:6D:12:34:56');
+    await tester.tap(find.byTooltip('Chọn PC Gaming cho Home'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Home'));
+    await tester.pumpAndSettle();
     expect(find.text('BẬT PC'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('invalid MAC prevents moving to save step', (tester) async {
     tester.view.physicalSize = const Size(430, 932);
     tester.view.devicePixelRatio = 1;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+    });
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
@@ -62,6 +78,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    if (find.text('Bắt đầu thiết lập').evaluate().isEmpty) {
+      await tester.tap(find.text('Danh sách'));
+      await tester.pumpAndSettle();
+    }
     await tester.ensureVisible(find.text('Bắt đầu thiết lập'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Bắt đầu thiết lập'));

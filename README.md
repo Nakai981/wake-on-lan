@@ -49,7 +49,7 @@ flutter build ipa
 - iOS không cung cấp MAC của thiết bị khác qua API công khai; Android mới thường chặn ARP. Nhập MAC là phương án dự phòng có chủ đích. Không suy đoán MAC hoặc tên PC từ địa chỉ IP.
 - Nhận phản hồi xác nhận IP đang truy cập được, không xác minh đó là cùng MAC. Nên đặt DHCP reservation cho PC để IP ổn định.
 - Đổi subnet cần cập nhật PC qua Chi tiết / Quét lại. Hai Wi-Fi khác nhau có cùng subnet không phân biệt được vì app không thu thập SSID/BSSID.
-- Chưa hỗ trợ Wake qua Internet, widget, QR, cloud, remote shutdown hoặc backup/export.
+- Chưa hỗ trợ Wake qua Internet, widget, QR, cloud hoặc backup/export.
 - APK debug dành cho thử nghiệm. Bản phát hành cửa hàng cần khóa ký riêng; cấu hình release mẫu hiện dùng debug key, chưa sẵn sàng đưa lên Play Store.
 
 ## Kiến trúc
@@ -77,3 +77,26 @@ Gói UDP được kiểm thử bằng socket loopback; điều đó không thay 
 Giao diện dùng nền sáng, thẻ PC xanh đen, điểm nhấn mint/lavender, menu dạng bottom sheet, bộ lọc yêu thích và thanh điều hướng nổi.
 
 Font **Be Vietnam Pro** được đóng gói trực tiếp trong app (400–900), không tải từ Internet lúc chạy. Font do nhóm tác giả Việt thiết kế và tinh chỉnh dấu tiếng Việt: https://github.com/bettergui/BeVietnamPro . Nguồn Google Fonts và revision được ghi tại `assets/fonts/SOURCE.txt`; giấy phép SIL OFL 1.1 được giữ nguyên tại `assets/fonts/OFL.txt` và đăng ký với Flutter LicenseRegistry.
+
+## Bật trực tiếp trên Home
+
+Nhấn BẬT PC để gửi tín hiệu ngay từ thẻ máy. App báo đã gửi, khóa nút của máy đó để tránh gửi lặp và kiểm tra phản hồi sau 10 giây. Có phản hồi: thông báo PC đã khởi động thành công/đang phản hồi. Chưa có phản hồi: tự chuyển tab Trợ giúp với thông tin máy và hướng dẫn; không khẳng định PC chắc chắn đã tắt. Nếu chưa lưu IP, cần bổ sung IP để xác nhận. Kiểm tra này hoạt động khi app còn chạy; hệ điều hành có thể trì hoãn tác vụ khi app ở nền.
+
+Bảng màu hiện tại: nền xám lạnh, thẻ xanh đen chuyển sắc, xanh điện cho điều hướng, cyan cho nút bật máy.
+
+## Windows Agent — Sleep và tắt máy
+
+Tải bộ `dist/WakeMyPcAgent.zip`, giải nén và chạy `WakeMyPcAgent.exe` trên PC. Xem [hướng dẫn Agent](windows-agent/README.md) để mở firewall Private TCP 47991 và ghép nối.
+
+Trong app, mở menu của PC → **Ghép nối Windows Agent**. Sau khi xác thực mã, Home hiển thị **Sleep** và **Tắt máy**. Cả hai có xác nhận trước khi gửi; PC chờ 10 giây và có thể hủy qua thông báo trên điện thoại hoặc biểu tượng tray Windows. Agent dùng DPAPI, điện thoại dùng secure storage; không lưu mã vào danh sách PC.
+
+Agent có tùy chọn tự chạy khi đăng nhập Windows. Bản này không phải Windows Service. Lệnh nguồn đã được kiểm thử bằng chế độ mô phỏng qua TCP thật; không thực hiện tắt/Sleep máy phát triển trong quá trình kiểm thử.
+
+## Home tối giản theo máy mặc định
+
+- Chọn duy nhất một ngôi sao tại tab **Danh sách** để máy xuất hiện trên **Home**. Chưa chọn máy thì Home hướng dẫn chọn; không tự lấy máy khác thay thế.
+- Chưa có phản hồi: nền đen, nút bật tròn. Không phản hồi không đồng nghĩa chắc chắn PC đã tắt.
+- Đã xác nhận PC hoạt động: nền sáng, hai nút Sleep và Shutdown. Nếu chưa ghép Agent, các nút dẫn tới ghép nối.
+- App kiểm tra trạng thái mỗi 15 giây khi ở foreground và khi quay lại app. Sau lệnh Wake vẫn kiểm tra sau khoảng 10 giây.
+- Tab Hoạt động được thay bằng Danh sách; lịch sử truy cập từ menu.
+- Ảnh `docs/home-dark.png`, `docs/home-light.png`, `docs/device-list.png` được render từ widget thật với trạng thái giả lập để kiểm tra bố cục, không phải bằng chứng PC vật lý bật/tắt.

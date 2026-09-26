@@ -187,6 +187,7 @@ class _SetupPageState extends State<SetupPage> {
         retries: int.parse(retries.text),
         timeout: int.parse(timeout.text),
         favorite: old?.favorite ?? false,
+        agentPaired: old?.agentPaired ?? false,
         lastWake: old?.lastWake,
       ),
     );
@@ -450,13 +451,9 @@ class _SetupPageState extends State<SetupPage> {
                                   validator: (v) => validNumber(v, 1, 10),
                                 ),
                                 const SizedBox(height: 16),
-                                TextFormField(
-                                  controller: timeout,
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Thời gian chờ (giây)',
-                                  ),
-                                  validator: (v) => validNumber(v, 5, 120),
+                                const Text(
+                                  'App tự kiểm tra PC sau khoảng 10 giây kể từ khi gửi tín hiệu.',
+                                  style: TextStyle(color: muted, fontSize: 12),
                                 ),
                                 const SizedBox(height: 16),
                               ],

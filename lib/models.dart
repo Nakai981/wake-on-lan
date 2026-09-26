@@ -68,6 +68,7 @@ class Pc {
   final String id, name, mac, ip, broadcast, network;
   final int port, retries, timeout;
   final bool favorite;
+  final bool agentPaired;
   final DateTime? lastWake;
   const Pc({
     required this.id,
@@ -80,9 +81,10 @@ class Pc {
     this.retries = 3,
     this.timeout = 60,
     this.favorite = false,
+    this.agentPaired = false,
     this.lastWake,
   });
-  Pc copy({bool? favorite, DateTime? lastWake}) => Pc(
+  Pc copy({bool? favorite, DateTime? lastWake, bool? agentPaired}) => Pc(
     id: id,
     name: name,
     mac: mac,
@@ -93,6 +95,7 @@ class Pc {
     retries: retries,
     timeout: timeout,
     favorite: favorite ?? this.favorite,
+    agentPaired: agentPaired ?? this.agentPaired,
     lastWake: lastWake ?? this.lastWake,
   );
   Map<String, dynamic> toJson() => {
@@ -106,6 +109,7 @@ class Pc {
     'retries': retries,
     'timeout': timeout,
     'favorite': favorite,
+    'agentPaired': agentPaired,
     'lastWake': lastWake?.toIso8601String(),
   };
   factory Pc.fromJson(Map<String, dynamic> j) => Pc(
@@ -119,6 +123,7 @@ class Pc {
     retries: j['retries'] ?? 3,
     timeout: j['timeout'] ?? 60,
     favorite: j['favorite'] ?? false,
+    agentPaired: j['agentPaired'] ?? false,
     lastWake: DateTime.tryParse(j['lastWake'] ?? ''),
   );
 }

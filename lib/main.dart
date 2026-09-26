@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services.dart';
 import 'screens.dart';
 import 'design.dart';
+import 'agent_client.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +25,13 @@ const paper = Color(0xFFF2F5FA);
 class WakeApp extends StatelessWidget {
   final DeviceStore store;
   final NetworkService? network;
-  const WakeApp({super.key, required this.store, this.network});
+  final AgentClient? agentClient;
+  const WakeApp({
+    super.key,
+    required this.store,
+    this.network,
+    this.agentClient,
+  });
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Wake My PC',
@@ -148,6 +155,10 @@ class WakeApp extends StatelessWidget {
         thickness: 1,
       ),
     ),
-    home: HomePage(store: store, net: network ?? NetworkService()),
+    home: HomePage(
+      store: store,
+      net: network ?? NetworkService(),
+      agentClient: agentClient,
+    ),
   );
 }

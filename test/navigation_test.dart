@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wake_my_pc/main.dart';
@@ -18,6 +18,9 @@ void main() {
   ) async {
     tester.view.physicalSize = const Size(320, 740);
     tester.view.devicePixelRatio = 1;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+    });
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
@@ -28,11 +31,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    if (find.byTooltip('Mở menu').evaluate().isEmpty) {
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
     await tester.tap(find.byTooltip('Mở menu'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Lịch sử hoạt động'));
     await tester.pumpAndSettle();
     expect(find.text('Một khởi đầu mới'), findsOneWidget);
+    if (find.byTooltip('Mở menu').evaluate().isEmpty) {
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
     await tester.tap(find.byTooltip('Mở menu'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Hướng dẫn & trợ giúp'));
@@ -47,6 +58,9 @@ void main() {
   ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+    });
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
@@ -62,11 +76,12 @@ void main() {
     ]);
     await tester.pumpWidget(WakeApp(store: store, network: UiNetwork()));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Yêu thích'));
+    expect(find.text('Work PC'), findsNothing);
+    await tester.tap(find.text('Danh sách'));
     await tester.pumpAndSettle();
     expect(find.text('Studio PC'), findsOneWidget);
-    expect(find.text('Work PC'), findsNothing);
-    await tester.tap(find.byTooltip('Tùy chọn máy'));
+    expect(find.text('Work PC'), findsOneWidget);
+    await tester.tap(find.byTooltip('Tùy chọn máy').first);
     await tester.pumpAndSettle();
     expect(find.text('Kiểm tra cấu hình'), findsOneWidget);
     await tester.tap(find.text('Xóa máy'));
@@ -78,4 +93,3 @@ void main() {
     // Framework reports any layout errors at test completion.
   });
 }
-
