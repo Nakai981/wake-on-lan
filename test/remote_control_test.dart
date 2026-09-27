@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wake_my_pc/remote_control.dart';
 import 'package:wake_my_pc/agent_client.dart';
@@ -14,7 +17,43 @@ class InputAgent extends AgentClient {
   }
 }
 
+class PendingInputAgent extends AgentClient {
+  final response = Completer<String>();
+  @override
+  Future<String> command(Pc pc, String command) => response.future;
+}
+
 void main() {
+  testWidgets('only pressed quick action shows pending state', (tester) async {
+    final agent = PendingInputAgent();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RemoteControlPage(
+          pc: const Pc(
+            id: '1',
+            name: 'PC',
+            mac: 'A4:BB:6D:12:34:56',
+            agentPaired: true,
+          ),
+          agent: agent,
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Mở rộng công cụ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Desktop'));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    final other = find.ancestor(
+      of: find.byTooltip('Đổi cửa sổ'),
+      matching: find.byType(IconButton),
+    );
+    expect(tester.widget<IconButton>(other).onPressed, isNotNull);
+    agent.response.complete('input_ok');
+    await tester.pumpAndSettle();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Desktop · Windows đã nhận thao tác'), findsOneWidget);
+  });
   testWidgets('paired keyboard and quick action send to Agent', (tester) async {
     final agent = InputAgent();
     await tester.pumpWidget(
@@ -54,8 +93,6 @@ void main() {
     await tester.pump();
     await tester.ensureVisible(submit);
     await tester.tap(submit);
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView), const Offset(0, 700));
     await tester.pumpAndSettle();
     expect(find.text('Đã thử nhập 8 ký tự · chưa gửi đến PC'), findsOneWidget);
     await tester.tap(find.byTooltip('Mở rộng công cụ'));

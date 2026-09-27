@@ -9,12 +9,20 @@ class TouchSurface extends StatefulWidget {
   final double height, sensitivity;
   final bool dragging;
   final ValueChanged<String> onAction;
+  final ValueChanged<Offset>? onMove;
+  final ValueChanged<double>? onScroll;
+  final ValueChanged<bool>? onClick;
+  final Future<bool> Function(bool)? onDragChanged;
   const TouchSurface({
     super.key,
     required this.height,
     required this.sensitivity,
     required this.dragging,
     required this.onAction,
+    this.onMove,
+    this.onScroll,
+    this.onClick,
+    this.onDragChanged,
   });
   @override
   State<TouchSurface> createState() => _TouchSurfaceState();
@@ -31,6 +39,31 @@ class _TouchSurfaceState extends State<TouchSurface> {
   late bool dragging = widget.dragging;
   double wheelOffset = 0;
   Timer? fade;
+  bool changingDrag = false;
+  Future<void> changeDrag(bool hold) async {
+    if (changingDrag) return;
+    setState(() => changingDrag = true);
+    final ok = await widget.onDragChanged?.call(hold) ?? true;
+    if (!mounted) return;
+    setState(() {
+      dragging = ok && hold;
+      changingDrag = false;
+    });
+    widget.onAction(
+      ok
+          ? (hold ? 'Đang giữ chuột trái · di ngón tay để kéo' : 'Đã thả chuột')
+          : 'Chưa giữ/thả được chuột. Kiểm tra Agent.',
+    );
+  }
+
+  void click(bool right) {
+    if (dragging) {
+      changeDrag(false);
+      return;
+    }
+    widget.onClick?.call(right);
+  }
+
   void armScroll() {
     fade?.cancel();
     if (!scrolling) setState(() => scrolling = true);
@@ -59,8 +92,10 @@ class _TouchSurfaceState extends State<TouchSurface> {
         onTapDown: (_) => setState(() => pressed = side),
         onTapCancel: () => setState(() => pressed = null),
         onTapUp: (_) => setState(() => pressed = null),
-        onTap: () =>
-            widget.onAction(side == 'left' ? 'Nhấp trái' : 'Nhấp phải'),
+        onTap: () {
+          click(side == 'right');
+          widget.onAction(side == 'left' ? 'Nhấp trái' : 'Nhấp phải');
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           decoration: BoxDecoration(
@@ -111,6 +146,7 @@ class _TouchSurfaceState extends State<TouchSurface> {
                   if (padPointer == event.pointer) {
                     padPointer = null;
                     lastTap = null;
+                    if (dragging) changeDrag(false);
                   }
                 },
                 onPointerUp: (event) {
@@ -128,10 +164,13 @@ class _TouchSurfaceState extends State<TouchSurface> {
                   lastTap = doubleTap ? null : now;
                   lastTapPosition = event.localPosition;
                   widget.onAction(doubleTap ? 'Nhấp đúp' : 'Nhấp trái');
+                  // Each tap emits one click; the second is not two extra clicks.
+                  click(false);
                 },
                 onPointerMove: (details) {
                   if (padPointer != details.pointer) return;
                   padTravel += details.delta.distance;
+                  widget.onMove?.call(details.delta * widget.sensitivity);
 
                   setState(
                     () => cursor = Offset(
@@ -238,14 +277,7 @@ class _TouchSurfaceState extends State<TouchSurface> {
                 size: 20,
                 color: mint,
               ),
-              onPressed: () {
-                setState(() => dragging = !dragging);
-                widget.onAction(
-                  dragging
-                      ? 'Đang giữ chuột trái · di ngón tay để kéo'
-                      : 'Đã thả chuột',
-                );
-              },
+              onPressed: changingDrag ? null : () => changeDrag(!dragging),
             ),
           ),
           Positioned(
@@ -267,6 +299,7 @@ class _TouchSurfaceState extends State<TouchSurface> {
                     if (scrolling) {
                       fade?.cancel();
                       if (details.delta.dy != 0) {
+                        widget.onScroll?.call(details.delta.dy);
                         setState(
                           () => wheelOffset =
                               (wheelOffset + details.delta.dy) % 8,

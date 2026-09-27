@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -42,6 +42,7 @@ namespace WakeMyPc {
         readonly Label status;
         readonly System.Windows.Forms.Timer timer;
         readonly AgentServer server;
+        readonly RemoteMouse mouse = new RemoteMouse(RemoteInput.MouseEvent);
         byte[] secret;
         string pending;
         DateTime deadline;
@@ -68,7 +69,7 @@ namespace WakeMyPc {
             buttons.Controls.Add(qrButton);
             var show = new CheckBox { Text = "Hiện mã", AutoSize = true }; show.CheckedChanged += (s,e) => pairing.UseSystemPasswordChar = !show.Checked; buttons.Controls.Add(show);
             var copy = new Button { Text = "Sao chép", AutoSize = true }; copy.Click += (s,e) => Clipboard.SetText(pairing.Text); buttons.Controls.Add(copy);
-            var rotate = new Button { Text = "Đổi mã", AutoSize = true }; rotate.Click += (s,e) => { if (MessageBox.Show("Hủy ghép nối tất cả điện thoại cũ?", Text, MessageBoxButtons.YesNo) == DialogResult.Yes) { pending = null; secret = NewSecret(); pairing.Text = AgentServer.Hex(secret); status.Text = "Đã đổi mã. Ghép nối lại điện thoại."; } }; buttons.Controls.Add(rotate); layout.Controls.Add(buttons);
+            var rotate = new Button { Text = "Đổi mã", AutoSize = true }; rotate.Click += (s,e) => { if (MessageBox.Show("Hủy ghép nối tất cả điện thoại cũ?", Text, MessageBoxButtons.YesNo) == DialogResult.Yes) { mouse.Release(); pending = null; secret = NewSecret(); pairing.Text = AgentServer.Hex(secret); status.Text = "Đã đổi mã. Ghép nối lại điện thoại."; } }; buttons.Controls.Add(rotate); layout.Controls.Add(buttons);
             var startup = new CheckBox { Text = "Chạy nền khi đăng nhập Windows", AutoSize = true, Margin = new Padding(0,16,0,12) };
             using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) startup.Checked = key != null && key.GetValue("WakeMyPcAgent") != null;
             startup.CheckedChanged += (s,e) => { try { using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) { if (startup.Checked) key.SetValue("WakeMyPcAgent", "\"" + Application.ExecutablePath + "\" --background"); else key.DeleteValue("WakeMyPcAgent", false); } } catch (Exception ex) { MessageBox.Show(ex.Message); } }; layout.Controls.Add(startup);
@@ -79,12 +80,13 @@ namespace WakeMyPc {
             server = new AgentServer(IPAddress.Any, 47991, () => secret, command => (string)Invoke(new Func<string>(() => HandleCommand(command))));
             timer = new System.Windows.Forms.Timer { Interval = 250 }; timer.Tick += Tick;
             Shown += (s,e) => { try { server.Start(); status.Text = "Sẵn sàng · TCP 47991"; timer.Start(); if (background) Hide(); } catch (Exception ex) { status.Text = "Không mở được cổng: " + ex.Message; } };
-            FormClosing += (s,e) => { if (!exiting && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } else { timer.Stop(); server.Dispose(); tray.Visible = false; tray.Dispose(); } };
+            FormClosing += (s,e) => { if (!exiting && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } else { mouse.Release(); timer.Stop(); server.Dispose(); tray.Visible = false; tray.Dispose(); } };
         }
         byte[] NewSecret() { var bytes = AgentServer.Unhex(AgentServer.RandomHex(16)); File.WriteAllBytes(secretPath, ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser)); return bytes; }
         void Open() { Show(); WindowState = FormWindowState.Normal; Activate(); details.Text = NetworkDetails(); }
         void Cancel() { pending = null; status.Text = "Đã hủy lệnh đang chờ · Sẵn sàng"; }
         string HandleCommand(string command) {
+            if (RemoteMouse.IsAllowed(command)) return mouse.Execute(command);
             if (RemoteInput.IsAllowed(command)) return RemoteInput.Execute(command);
             if (command == "status") return "online";
             if (command == "cancel") { Cancel(); return "cancelled"; }
@@ -94,11 +96,12 @@ namespace WakeMyPc {
             return "accepted";
         }
         void Tick(object sender, EventArgs args) {
+            mouse.Expire();
             if (pending == null) return;
             status.Text = (pending == "sleep" ? "Sleep" : "Tắt máy") + " sau " + Math.Max(0, (int)Math.Ceiling((deadline - DateTime.UtcNow).TotalSeconds)) + " giây — bấm Hủy nếu cần.";
             if (DateTime.UtcNow < deadline) return;
             string command = pending; pending = null;
-            try { Power.Execute(command); status.Text = "Đã yêu cầu Windows thực hiện " + command; }
+            try { mouse.Release(); Power.Execute(command); status.Text = "Đã yêu cầu Windows thực hiện " + command; }
             catch (Exception ex) { status.Text = "Windows chưa thực hiện: " + ex.Message; tray.ShowBalloonTip(5000, "Lệnh không hoàn tất", status.Text, ToolTipIcon.Warning); }
         }
         static string NetworkDetails() {

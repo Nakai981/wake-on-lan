@@ -12,6 +12,10 @@ namespace WakeMyPc {
         [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint count, Input[] events, int size);
         [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
         static readonly ushort[] Modifiers = { 0x11, 0x12, 0x10, 0x5B };
+        public static bool MouseEvent(int x, int y, int data, uint flags) {
+            var input = new Input { Type = 0, Data = new Union { Mouse = new Mouse { X = x, Y = y, Data = unchecked((uint)data), Flags = flags } } };
+            return SendInput(1, new[] { input }, Marshal.SizeOf(typeof(Input))) == 1;
+        }
         public static bool IsAllowed(string command) {
             int mask, key; string text;
             return Parse(command, out mask, out key, out text);

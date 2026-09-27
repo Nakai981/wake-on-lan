@@ -5,8 +5,9 @@ import 'touch_surface.dart';
 import 'models.dart';
 import 'agent_client.dart';
 import 'remote_commands.dart';
+import 'mouse_transport.dart';
 
-/// Keyboard and Touch Bar use the paired Agent; pointer gestures remain previews.
+/// Remote input uses the paired Agent; unpaired devices keep a local preview.
 class RemoteControlPage extends StatefulWidget {
   final String? pcName;
   final Pc? pc;
@@ -17,7 +18,62 @@ class RemoteControlPage extends StatefulWidget {
   State<RemoteControlPage> createState() => _RemoteControlPageState();
 }
 
-class _RemoteControlPageState extends State<RemoteControlPage> {
+class _RemoteControlPageState extends State<RemoteControlPage>
+    with WidgetsBindingObserver {
+  MouseTransport? mouse;
+  final mouseReset = ValueNotifier(0);
+  bool foreground = true;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (live) {
+      mouse = MouseTransport(
+        send: (command) =>
+            (widget.agent ?? const AgentClient()).command(widget.pc!, command),
+        onError: () {
+          if (!mounted) return;
+          mouseReset.value++;
+          respond(
+            'Chuột mất kết nối hoặc Agent chưa hỗ trợ. Đã yêu cầu nhả chuột.',
+          );
+        },
+      );
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!foreground) {
+      mouse?.release();
+      mouseReset.value++;
+    }
+  }
+
+  Widget connectedPad(double height) => ValueListenableBuilder<int>(
+    valueListenable: mouseReset,
+    builder: (_, epoch, _) => TouchSurface(
+      key: ValueKey('pad-$epoch'),
+      height: height,
+      sensitivity: sensitivity,
+      dragging: false,
+      onMove: (delta) {
+        if (foreground) mouse?.move(delta.dx, delta.dy);
+      },
+      onScroll: (delta) {
+        if (foreground) mouse?.wheel(delta);
+      },
+      onClick: (right) {
+        if (foreground) mouse?.click(right);
+      },
+      onDragChanged: (hold) async =>
+          !foreground ? false : await mouse?.drag(hold) ?? true,
+      onAction: (value) {
+        if (mounted) setState(() => feedback = value);
+      },
+    ),
+  );
   final input = TextEditingController();
   final modifiers = <String>{};
   bool expanded = false;
@@ -26,13 +82,18 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
   double volume = .55, sensitivity = 1;
   bool playing = false, isMuted = false;
   bool sending = false;
+  String? activeAction;
   bool get live => widget.pc?.agentPaired == true;
 
-  Future<void> sendInput(String command) async {
-    if (sending) return;
+  Future<void> sendInput(String command, {String label = 'Bàn phím'}) async {
+    if (sending) {
+      respond('Đang gửi $activeAction, vui lòng đợi phản hồi.');
+      return;
+    }
     setState(() {
       sending = true;
-      feedback = 'Đang gửi…';
+      activeAction = label;
+      feedback = 'Đang gửi $label…';
     });
     try {
       final result = await (widget.agent ?? const AgentClient()).command(
@@ -42,7 +103,7 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
       if (!mounted) return;
       respond(
         result == 'input_ok'
-            ? 'Đã gửi thao tác đến Windows'
+            ? '$label · Windows đã nhận thao tác'
             : result == 'input_busy'
             ? 'PC đang giữ phím bổ trợ. Thả phím rồi thử lại.'
             : 'Windows chưa thực hiện được thao tác.',
@@ -52,7 +113,12 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
         respond('Không gửi được. Kiểm tra kết nối và cập nhật Windows Agent.');
       }
     } finally {
-      if (mounted) setState(() => sending = false);
+      if (mounted) {
+        setState(() {
+          sending = false;
+          activeAction = null;
+        });
+      }
     }
   }
 
@@ -60,6 +126,9 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    mouse?.dispose();
+    mouseReset.dispose();
     input.dispose();
     functionScroll.dispose();
     quickScroll.dispose();
@@ -108,27 +177,28 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
             borderRadius: BorderRadius.circular(10),
           ),
         ),
-        onPressed: sending
-            ? null
-            : () {
-                if (['Ctrl', 'Alt', 'Shift', 'Win'].contains(label)) {
-                  setState(() {
-                    if (!modifiers.add(label)) modifiers.remove(label);
-                  });
-                  respond(
-                    modifiers.isEmpty
-                        ? 'Đã nhả phím bổ trợ'
-                        : 'Giữ ${modifiers.join(' + ')}',
-                  );
-                } else {
-                  if (live) {
-                    sendInput(keyCommand(label, modifiers));
-                  } else {
-                    respond([...modifiers, label].join(' + '));
-                  }
-                  setState(modifiers.clear);
-                }
-              },
+        onPressed: () {
+          if (['Ctrl', 'Alt', 'Shift', 'Win'].contains(label)) {
+            setState(() {
+              if (!modifiers.add(label)) modifiers.remove(label);
+            });
+            respond(
+              modifiers.isEmpty
+                  ? 'Đã nhả phím bổ trợ'
+                  : 'Giữ ${modifiers.join(' + ')}',
+            );
+          } else {
+            if (live) {
+              sendInput(
+                keyCommand(label, modifiers),
+                label: [...modifiers, label].join(' + '),
+              );
+            } else {
+              respond([...modifiers, label].join(' + '));
+            }
+            setState(modifiers.clear);
+          }
+        },
         child: Text(label),
       ),
     );
@@ -147,9 +217,15 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
             ),
           ),
           onPressed: live
-              ? (sending ? null : () => sendInput(quickCommands[label]!))
+              ? () => sendInput(quickCommands[label]!, label: label)
               : action ?? () => respond(label),
-          icon: Icon(icon),
+          icon: activeAction == label
+              ? const SizedBox(
+                  width: 19,
+                  height: 19,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(icon),
         ),
       );
 
@@ -287,7 +363,7 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                             ),
                             const SizedBox(height: 10),
                             Text(
-                              'TRUY CẬP NHANH',
+                              'TOUCH BAR · TRUY CẬP NHANH',
                               style: TextStyle(
                                 fontSize: 9,
                                 letterSpacing: 1.3,
@@ -390,12 +466,21 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                         ),
                 ),
                 const SizedBox(height: 14),
-                TouchSurface(
-                  height: 380,
-                  sensitivity: sensitivity,
-                  dragging: false,
-                  onAction: (value) => setState(() => feedback = value),
+                Text(
+                  'Vuốt ngang Touch Bar để xem media và âm lượng. Giữ biểu tượng để xem tên.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  feedback,
+                  key: const ValueKey('remote-feedback'),
+                  style: TextStyle(fontSize: 12, color: colors.primary),
+                ),
+                const SizedBox(height: 10),
+                connectedPad(380),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -421,18 +506,10 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                   label: '${sensitivity.toStringAsFixed(1)}×',
                   onChanged: (value) => setState(() => sensitivity = value),
                 ),
-                Text(
-                  feedback,
-                  key: const ValueKey('remote-feedback'),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
                 const SizedBox(height: 4),
                 Text(
                   live
-                      ? 'Bàn phím / Touch Bar gửi đến PC · Touchpad vẫn là xem trước'
+                      ? 'Chuột, bàn phím và Touch Bar điều khiển PC đã ghép nối'
                       : 'Xem trước · Chưa gửi lệnh đến PC',
                   style: TextStyle(
                     fontSize: 10,
@@ -449,6 +526,9 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
 
   Future<void> openLandscapePad() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    await mouse?.release();
+    if (!mounted) return;
+    mouseReset.value++;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => Scaffold(
@@ -476,8 +556,8 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                         ),
                       ),
                       const Spacer(),
-                      const Text(
-                        'Xem trước',
+                      Text(
+                        live ? 'Windows Agent' : 'Xem trước',
                         style: TextStyle(color: Colors.white54),
                       ),
                       const SizedBox(width: 20),
@@ -487,12 +567,7 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                       child: LayoutBuilder(
-                        builder: (_, bounds) => TouchSurface(
-                          height: bounds.maxHeight,
-                          sensitivity: sensitivity,
-                          dragging: false,
-                          onAction: (_) {},
-                        ),
+                        builder: (_, bounds) => connectedPad(bounds.maxHeight),
                       ),
                     ),
                   ),
@@ -503,5 +578,7 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
         ),
       ),
     );
+    await mouse?.release();
+    if (mounted) mouseReset.value++;
   }
 }

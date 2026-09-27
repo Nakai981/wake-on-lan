@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'models.dart';
 import 'remote_commands.dart';
+import 'mouse_transport.dart';
 
 const agentPort = 47991;
 String normalizePairCode(String value) {
@@ -59,7 +60,8 @@ class AgentClient {
   }) async {
     ipv4Number(ip);
     if (!{'status', 'sleep', 'shutdown', 'cancel'}.contains(command) &&
-        !validInputCommand(command)) {
+        !validInputCommand(command) &&
+        !validMouseCommand(command)) {
       throw ArgumentError('Lệnh không hỗ trợ');
     }
     normalizePairCode(code);
@@ -113,6 +115,11 @@ class AgentClient {
         'cancelled',
         'busy',
         'simulated',
+        'input_ok',
+        'input_busy',
+        'input_failed',
+        'input_expired',
+        'unsupported',
       }.contains(reply[0])) {
         throw const FormatException('Phản hồi không hợp lệ.');
       }
