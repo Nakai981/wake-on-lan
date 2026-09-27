@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 
 import 'design.dart';
 
@@ -22,6 +23,10 @@ class TouchSurface extends StatefulWidget {
 class _TouchSurfaceState extends State<TouchSurface> {
   Offset cursor = const Offset(.5, .5);
   String? pressed;
+  int? padPointer;
+  double padTravel = 0;
+  DateTime? lastTap;
+  Offset lastTapPosition = Offset.zero;
   bool scrolling = false;
   late bool dragging = widget.dragging;
   double wheelOffset = 0;
@@ -88,42 +93,81 @@ class _TouchSurfaceState extends State<TouchSurface> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => widget.onAction('Nhấp trái'),
-              onDoubleTap: () => widget.onAction('Nhấp đúp'),
-              onPanUpdate: (details) {
-                setState(
-                  () => cursor = Offset(
-                    (cursor.dx +
-                            details.delta.dx *
-                                widget.sensitivity /
-                                bounds.maxWidth)
-                        .clamp(22 / bounds.maxWidth, 1 - 22 / bounds.maxWidth),
-                    (cursor.dy +
-                            details.delta.dy *
-                                widget.sensitivity /
-                                widget.height)
-                        .clamp(22 / widget.height, 1 - 22 / widget.height),
-                  ),
-                );
-                widget.onAction(dragging ? 'Đang kéo' : 'Di chuyển con trỏ');
+            child: RawGestureDetector(
+              gestures: {
+                EagerGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<
+                      EagerGestureRecognizer
+                    >(() => EagerGestureRecognizer(), (_) {}),
               },
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.touch_app_outlined,
-                      color: Colors.white24,
-                      size: 36,
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: (event) {
+                  if (padPointer != null) return;
+                  padPointer = event.pointer;
+                  padTravel = 0;
+                },
+                onPointerCancel: (event) {
+                  if (padPointer == event.pointer) {
+                    padPointer = null;
+                    lastTap = null;
+                  }
+                },
+                onPointerUp: (event) {
+                  if (padPointer != event.pointer) return;
+                  padPointer = null;
+                  if (padTravel > 6) {
+                    lastTap = null;
+                    return;
+                  }
+                  final now = DateTime.now();
+                  final doubleTap =
+                      lastTap != null &&
+                      now.difference(lastTap!).inMilliseconds < 300 &&
+                      (event.localPosition - lastTapPosition).distance < 24;
+                  lastTap = doubleTap ? null : now;
+                  lastTapPosition = event.localPosition;
+                  widget.onAction(doubleTap ? 'Nhấp đúp' : 'Nhấp trái');
+                },
+                onPointerMove: (details) {
+                  if (padPointer != details.pointer) return;
+                  padTravel += details.delta.distance;
+
+                  setState(
+                    () => cursor = Offset(
+                      (cursor.dx +
+                              details.delta.dx *
+                                  widget.sensitivity /
+                                  bounds.maxWidth)
+                          .clamp(
+                            22 / bounds.maxWidth,
+                            1 - 22 / bounds.maxWidth,
+                          ),
+                      (cursor.dy +
+                              details.delta.dy *
+                                  widget.sensitivity /
+                                  widget.height)
+                          .clamp(22 / widget.height, 1 - 22 / widget.height),
                     ),
-                    SizedBox(height: 12),
-                    Text(
-                      'Không gian chạm',
-                      style: TextStyle(color: Colors.white38, fontSize: 13),
-                    ),
-                  ],
+                  );
+                  widget.onAction(dragging ? 'Đang kéo' : 'Di chuyển con trỏ');
+                },
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.touch_app_outlined,
+                        color: Colors.white24,
+                        size: 36,
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Không gian chạm',
+                        style: TextStyle(color: Colors.white38, fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
