@@ -25,17 +25,13 @@ class _TouchSurfaceState extends State<TouchSurface> {
   bool scrolling = false;
   late bool dragging = widget.dragging;
   double wheelOffset = 0;
-  Timer? reveal, fade;
+  Timer? fade;
   void armScroll() {
     fade?.cancel();
-    if (scrolling || reveal?.isActive == true) return;
-    reveal = Timer(const Duration(seconds: 2), () {
-      if (mounted) setState(() => scrolling = true);
-    });
+    if (!scrolling) setState(() => scrolling = true);
   }
 
   void leaveScroll() {
-    reveal?.cancel();
     fade?.cancel();
     fade = Timer(const Duration(milliseconds: 900), () {
       if (mounted) setState(() => scrolling = false);
@@ -44,7 +40,6 @@ class _TouchSurfaceState extends State<TouchSurface> {
 
   @override
   void dispose() {
-    reveal?.cancel();
     fade?.cancel();
     super.dispose();
   }
@@ -104,12 +99,12 @@ class _TouchSurfaceState extends State<TouchSurface> {
                             details.delta.dx *
                                 widget.sensitivity /
                                 bounds.maxWidth)
-                        .clamp(.04, .9),
+                        .clamp(22 / bounds.maxWidth, 1 - 22 / bounds.maxWidth),
                     (cursor.dy +
                             details.delta.dy *
                                 widget.sensitivity /
                                 widget.height)
-                        .clamp(.04, .85),
+                        .clamp(22 / widget.height, 1 - 22 / widget.height),
                   ),
                 );
                 widget.onAction(dragging ? 'Đang kéo' : 'Di chuyển con trỏ');
@@ -134,10 +129,38 @@ class _TouchSurfaceState extends State<TouchSurface> {
             ),
           ),
           Positioned(
-            left: cursor.dx * bounds.maxWidth,
-            top: cursor.dy * widget.height,
-            child: const IgnorePointer(
-              child: Icon(Icons.near_me_rounded, color: mint, size: 25),
+            left: cursor.dx * bounds.maxWidth - 20,
+            top: cursor.dy * widget.height - 20,
+            child: IgnorePointer(
+              child: Container(
+                key: const ValueKey('touch-cursor'),
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: mint.withValues(alpha: .2),
+                  border: Border.all(
+                    color: mint.withValues(alpha: .65),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: mint.withValues(alpha: .18),
+                      blurRadius: 16,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: mint,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
           Positioned(
@@ -187,16 +210,16 @@ class _TouchSurfaceState extends State<TouchSurface> {
             bottom: 68,
             width: 44,
             child: MouseRegion(
-              onEnter: (_) => armScroll(),
               onExit: (_) => leaveScroll(),
               child: Listener(
-                onPointerDown: (_) => armScroll(),
+                onPointerDown: (_) => fade?.cancel(),
                 onPointerUp: (_) => leaveScroll(),
                 onPointerCancel: (_) => leaveScroll(),
                 child: GestureDetector(
                   key: const ValueKey('scroll-strip'),
                   behavior: HitTestBehavior.opaque,
                   onVerticalDragUpdate: (details) {
+                    if (details.delta.dy != 0) armScroll();
                     if (scrolling) {
                       fade?.cancel();
                       if (details.delta.dy != 0) {
@@ -211,6 +234,7 @@ class _TouchSurfaceState extends State<TouchSurface> {
                     }
                   },
                   onVerticalDragEnd: (_) => leaveScroll(),
+                  onVerticalDragCancel: leaveScroll,
                   child: AnimatedOpacity(
                     opacity: scrolling ? 1 : .08,
                     duration: const Duration(milliseconds: 250),

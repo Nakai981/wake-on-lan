@@ -38,7 +38,7 @@ namespace WakeMyPc {
                 var parts = ReadLine(stream, 512).Split(' ');
                 if (parts.Length != 3 || !IsHex(parts[1], 64) || !IsHex(parts[2], 64)) return;
                 string command = parts[0], nonce = parts[1];
-                if (command != "status" && command != "sleep" && command != "shutdown" && command != "cancel") return;
+                if (command != "status" && command != "sleep" && command != "shutdown" && command != "cancel" && !RemoteInput.IsAllowed(command)) return;
                 string request = "request\n" + challenge + "\n" + nonce + "\n" + command;
                 if (!Equal(parts[2], Mac(secret, request))) { Thread.Sleep(150); return; }
                 // Rotation invalidates even already-issued challenges.

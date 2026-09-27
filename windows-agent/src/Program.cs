@@ -85,6 +85,7 @@ namespace WakeMyPc {
         void Open() { Show(); WindowState = FormWindowState.Normal; Activate(); details.Text = NetworkDetails(); }
         void Cancel() { pending = null; status.Text = "Đã hủy lệnh đang chờ · Sẵn sàng"; }
         string HandleCommand(string command) {
+            if (RemoteInput.IsAllowed(command)) return RemoteInput.Execute(command);
             if (command == "status") return "online";
             if (command == "cancel") { Cancel(); return "cancelled"; }
             if (pending != null) return "busy";

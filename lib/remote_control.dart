@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'touch_surface.dart';
+import 'models.dart';
+import 'agent_client.dart';
+import 'remote_commands.dart';
 
-/// Local interaction preview. No commands are sent to the Windows Agent yet.
+/// Keyboard and Touch Bar use the paired Agent; pointer gestures remain previews.
 class RemoteControlPage extends StatefulWidget {
   final String? pcName;
-  const RemoteControlPage({super.key, this.pcName});
+  final Pc? pc;
+  final AgentClient? agent;
+  const RemoteControlPage({super.key, this.pcName, this.pc, this.agent});
 
   @override
   State<RemoteControlPage> createState() => _RemoteControlPageState();
@@ -20,6 +25,36 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
   final quickScroll = ScrollController();
   double volume = .55, sensitivity = 1;
   bool playing = false, isMuted = false;
+  bool sending = false;
+  bool get live => widget.pc?.agentPaired == true;
+
+  Future<void> sendInput(String command) async {
+    if (sending) return;
+    setState(() {
+      sending = true;
+      feedback = 'Đang gửi…';
+    });
+    try {
+      final result = await (widget.agent ?? const AgentClient()).command(
+        widget.pc!,
+        command,
+      );
+      if (!mounted) return;
+      respond(
+        result == 'input_ok'
+            ? 'Đã gửi thao tác đến Windows'
+            : result == 'input_busy'
+            ? 'PC đang giữ phím bổ trợ. Thả phím rồi thử lại.'
+            : 'Windows chưa thực hiện được thao tác.',
+      );
+    } catch (_) {
+      if (mounted) {
+        respond('Không gửi được. Kiểm tra kết nối và cập nhật Windows Agent.');
+      }
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
 
   String feedback = 'Sẵn sàng trải nghiệm';
 
@@ -38,6 +73,15 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
 
   void submitText() {
     if (input.text.trim().isEmpty) return;
+    if (live) {
+      if (!input.value.composing.isCollapsed) return;
+      try {
+        sendInput(textCommand(input.text));
+      } on FormatException catch (e) {
+        respond(e.message);
+      }
+      return;
+    }
     respond(
       'Đã thử nhập ${input.text.characters.length} ký tự · chưa gửi đến PC',
     );
@@ -64,21 +108,27 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
             borderRadius: BorderRadius.circular(10),
           ),
         ),
-        onPressed: () {
-          if (['Ctrl', 'Alt', 'Shift', 'Win'].contains(label)) {
-            setState(() {
-              if (!modifiers.add(label)) modifiers.remove(label);
-            });
-            respond(
-              modifiers.isEmpty
-                  ? 'Đã nhả phím bổ trợ'
-                  : 'Giữ ${modifiers.join(' + ')}',
-            );
-          } else {
-            respond([...modifiers, label].join(' + '));
-            setState(modifiers.clear);
-          }
-        },
+        onPressed: sending
+            ? null
+            : () {
+                if (['Ctrl', 'Alt', 'Shift', 'Win'].contains(label)) {
+                  setState(() {
+                    if (!modifiers.add(label)) modifiers.remove(label);
+                  });
+                  respond(
+                    modifiers.isEmpty
+                        ? 'Đã nhả phím bổ trợ'
+                        : 'Giữ ${modifiers.join(' + ')}',
+                  );
+                } else {
+                  if (live) {
+                    sendInput(keyCommand(label, modifiers));
+                  } else {
+                    respond([...modifiers, label].join(' + '));
+                  }
+                  setState(modifiers.clear);
+                }
+              },
         child: Text(label),
       ),
     );
@@ -96,7 +146,9 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
               borderRadius: BorderRadius.circular(12),
             ),
           ),
-          onPressed: action ?? () => respond(label),
+          onPressed: live
+              ? (sending ? null : () => sendInput(quickCommands[label]!))
+              : action ?? () => respond(label),
           icon: Icon(icon),
         ),
       );
@@ -123,7 +175,7 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
                 Text(
-                  '${widget.pcName ?? 'Touchpad'} · Xem trước',
+                  '${widget.pcName ?? 'Touchpad'} · ${live ? 'Windows Agent' : 'Xem trước'}',
                   style: TextStyle(
                     color: colors.onSurfaceVariant,
                     fontSize: 12,
@@ -147,8 +199,8 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                             vertical: 14,
                           ),
                           suffixIcon: IconButton(
-                            tooltip: 'Thử nhập',
-                            onPressed: input.text.trim().isEmpty
+                            tooltip: live ? 'Gửi văn bản' : 'Thử nhập',
+                            onPressed: sending || input.text.trim().isEmpty
                                 ? null
                                 : submitText,
                             icon: const Icon(
@@ -339,7 +391,7 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                 ),
                 const SizedBox(height: 14),
                 TouchSurface(
-                  height: 300,
+                  height: 380,
                   sensitivity: sensitivity,
                   dragging: false,
                   onAction: (value) => setState(() => feedback = value),
@@ -379,7 +431,9 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Xem trước · Chưa gửi lệnh đến PC',
+                  live
+                      ? 'Bàn phím / Touch Bar gửi đến PC · Touchpad vẫn là xem trước'
+                      : 'Xem trước · Chưa gửi lệnh đến PC',
                   style: TextStyle(
                     fontSize: 10,
                     color: colors.onSurfaceVariant,

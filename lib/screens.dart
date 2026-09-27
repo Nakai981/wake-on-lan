@@ -480,7 +480,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> openControls() => Navigator.of(context).push<void>(
     MaterialPageRoute(
-      builder: (_) => RemoteControlPage(pcName: selectedPc?.name),
+      builder: (_) => RemoteControlPage(
+        pcName: selectedPc?.name,
+        pc: selectedPc,
+        agent: agent,
+      ),
     ),
   );
 

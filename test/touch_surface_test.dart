@@ -4,7 +4,7 @@ import 'package:wake_my_pc/touch_surface.dart';
 
 void main() {
   testWidgets(
-    'bottom zones click and scroll activates after holding two seconds',
+    'bottom zones click and both swipe directions reveal scroll immediately',
     (tester) async {
       final actions = <String>[];
       await tester.pumpWidget(
@@ -24,18 +24,18 @@ void main() {
       expect(actions, ['Nhấp trái', 'Nhấp phải']);
       final strip = find.byKey(const ValueKey('scroll-strip'));
       final gesture = await tester.startGesture(tester.getCenter(strip));
-      await tester.pump(const Duration(milliseconds: 1900));
+      await tester.pump();
       expect(
         tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
         .08,
       );
-      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.moveBy(const Offset(0, 25));
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
       expect(
         tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
         1,
       );
-      await gesture.moveBy(const Offset(0, 25));
-      await gesture.moveBy(const Offset(0, 20));
       expect(actions.last, 'Cuộn xuống');
       await gesture.up();
       await tester.pump(const Duration(seconds: 1));
@@ -43,6 +43,16 @@ void main() {
         tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
         .08,
       );
+      final upward = await tester.startGesture(tester.getCenter(strip));
+      await upward.moveBy(const Offset(0, -25));
+      await upward.moveBy(const Offset(0, -20));
+      await tester.pump();
+      expect(actions.last, 'Cuộn lên');
+      expect(
+        tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+        1,
+      );
+      await upward.up();
       await tester.pumpWidget(const SizedBox());
     },
   );

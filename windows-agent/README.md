@@ -23,6 +23,16 @@
 
 ## Bảo mật và phạm vi
 
+### Touch Bar và bàn phím
+
+Agent nhận văn bản Unicode (tiếng Việt), Esc/F1–F12, phím điều hướng, Ctrl/Alt/Shift/Win kết hợp, media và âm lượng. App đã ghép nối sẽ gửi thật qua màn Điều khiển; PC chưa ghép nối vẫn dùng xem trước. Chọn ô nhập trên PC trước khi gửi từ điện thoại. Mỗi lần gửi tối đa 240 byte UTF-8; app giữ nguyên nội dung để bạn tự sửa/xóa. Không tự gửi lại khi lỗi, tránh nhập trùng.
+
+Phím tắt: Desktop = Win+D, đổi cửa sổ = Alt+Tab, chụp màn hình = Win+Shift+S, tìm kiếm = Win+S. Âm lượng dùng phím tăng/giảm của Windows, không đồng bộ phần trăm từ PC. Các thao tác dùng SendInput, chỉ áp dụng phiên desktop đã đăng nhập; không hỗ trợ UAC/màn hình đăng nhập hoặc ứng dụng có quyền cao hơn Agent. Tham khảo: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
+
+Mỗi tổ hợp có đủ nhấn và nhả trong cùng yêu cầu. Agent từ chối khi người dùng PC đang giữ phím bổ trợ. Lệnh được giới hạn danh sách cho phép và ký HMAC như lệnh nguồn; văn bản không được mã hóa trên đường truyền, chỉ dùng LAN tin cậy. Touchpad vẫn chưa gửi chuyển động chuột thật.
+
+Build lại Agent bằng Build.ps1 và chạy app mới để sử dụng. EXE/ZIP cũ không tự cập nhật; nút **Hiện QR ghép nối** cũng chỉ có trong bản Agent được build từ mã nguồn mới.
+
 ### Ghép nối bằng QR
 
 Trên Agent, bấm **Hiện QR ghép nối**, chọn card mạng có MAC giống PC đã lưu trên điện thoại. Trên app: menu PC → **Ghép nối Windows Agent** → **Quét QR từ Windows Agent**. Cấp quyền camera, quét mã rồi bấm **Ghép nối** để xác thực. App điền IP từ QR và chỉ cập nhật IP đã lưu sau khi ghép nối thành công. Nhập mã tay vẫn dùng được.
@@ -33,7 +43,7 @@ Thay đổi này cần build lại cả app điện thoại và Agent; hot reloa
 
 - Mã ngẫu nhiên 128 bit; không gửi mã qua mạng. Windows bảo vệ mã bằng DPAPI CurrentUser.
 - TCP challenge/response HMAC-SHA256: challenge ngẫu nhiên riêng cho mỗi kết nối, client nonce và phản hồi ký. Mỗi kết nối nhận đúng một lệnh, giới hạn kích thước 512 byte, timeout 4 giây, tối đa 12 kết nối.
-- Chỉ hỗ trợ `status`, `sleep`, `shutdown`, `cancel`. Không có remote shell hay lệnh tùy ý.
+- Hỗ trợ `status`, `sleep`, `shutdown`, `cancel`, `key:<mask>:<virtual-key>` và `text:<base64-utf8>` có giới hạn. Không có remote shell hay lệnh thực thi tùy ý.
 - Giao thức xác thực nhưng không mã hóa nội dung lệnh; dùng trong LAN tin cậy. Không cung cấp truy cập Internet.
 - Đổi mã từ Agent để thu hồi toàn bộ điện thoại cũ. Tắt máy không dùng `/f` nên ứng dụng chưa lưu có thể chặn.
 - Sleep dùng SetSuspendState(false,false,false), giữ wake events; phụ thuộc phần cứng, chính sách Windows và quyền SeShutdownPrivilege. Lỗi được hiển thị trong Agent.

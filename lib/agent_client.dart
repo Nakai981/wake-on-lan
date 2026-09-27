@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'models.dart';
+import 'remote_commands.dart';
 
 const agentPort = 47991;
 String normalizePairCode(String value) {
@@ -57,7 +58,8 @@ class AgentClient {
     int port = agentPort,
   }) async {
     ipv4Number(ip);
-    if (!{'status', 'sleep', 'shutdown', 'cancel'}.contains(command)) {
+    if (!{'status', 'sleep', 'shutdown', 'cancel'}.contains(command) &&
+        !validInputCommand(command)) {
       throw ArgumentError('Lệnh không hỗ trợ');
     }
     normalizePairCode(code);
