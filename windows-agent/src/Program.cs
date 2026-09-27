@@ -50,6 +50,7 @@ namespace WakeMyPc {
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         public AgentForm(bool background) {
             Text = "Wake My PC · Windows Agent"; ClientSize = new Size(570, 610); MinimumSize = new Size(550, 630);
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Segoe UI", 10); BackColor = Color.FromArgb(242,245,250); StartPosition = FormStartPosition.CenterScreen;
             Directory.CreateDirectory(Path.GetDirectoryName(secretPath));
             secret = File.Exists(secretPath) ? ProtectedData.Unprotect(File.ReadAllBytes(secretPath), null, DataProtectionScope.CurrentUser) : NewSecret();
@@ -62,6 +63,9 @@ namespace WakeMyPc {
             layout.Controls.Add(new Label { Text = "Trong app → menu của PC → Ghép nối Windows Agent.\nNhập IP của PC và mã bên dưới. Giữ mã này riêng tư.", AutoSize = true, Margin = new Padding(0,14,0,8) });
             pairing = new TextBox { ReadOnly = true, Dock = DockStyle.Top, Font = new Font("Consolas", 11), Text = AgentServer.Hex(secret), UseSystemPasswordChar = true }; layout.Controls.Add(pairing);
             var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top };
+            var qrButton = new Button { Text = "Hiện QR ghép nối", AutoSize = true };
+            qrButton.Click += (s,e) => { using (var qr = new PairingQrForm(secret)) qr.ShowDialog(this); };
+            buttons.Controls.Add(qrButton);
             var show = new CheckBox { Text = "Hiện mã", AutoSize = true }; show.CheckedChanged += (s,e) => pairing.UseSystemPasswordChar = !show.Checked; buttons.Controls.Add(show);
             var copy = new Button { Text = "Sao chép", AutoSize = true }; copy.Click += (s,e) => Clipboard.SetText(pairing.Text); buttons.Controls.Add(copy);
             var rotate = new Button { Text = "Đổi mã", AutoSize = true }; rotate.Click += (s,e) => { if (MessageBox.Show("Hủy ghép nối tất cả điện thoại cũ?", Text, MessageBoxButtons.YesNo) == DialogResult.Yes) { pending = null; secret = NewSecret(); pairing.Text = AgentServer.Hex(secret); status.Text = "Đã đổi mã. Ghép nối lại điện thoại."; } }; buttons.Controls.Add(rotate); layout.Controls.Add(buttons);
@@ -70,7 +74,7 @@ namespace WakeMyPc {
             startup.CheckedChanged += (s,e) => { try { using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) { if (startup.Checked) key.SetValue("WakeMyPcAgent", "\"" + Application.ExecutablePath + "\" --background"); else key.DeleteValue("WakeMyPcAgent", false); } } catch (Exception ex) { MessageBox.Show(ex.Message); } }; layout.Controls.Add(startup);
             var cancel = new Button { Text = "Hủy lệnh đang chờ", Height = 40, Dock = DockStyle.Top }; cancel.Click += (s,e) => Cancel(); layout.Controls.Add(cancel);
             layout.Controls.Add(new Label { Text = "Đóng cửa sổ để tiếp tục chạy ở khay hệ thống.\nCho phép TCP 47991 trên mạng Private (chạy Enable-Firewall.ps1).\nLệnh Sleep/Tắt máy chờ 10 giây để bạn có thể hủy.\nTắt máy không ép đóng ứng dụng chưa lưu.", AutoSize = true, ForeColor = Color.FromArgb(99,117,139), Margin = new Padding(0,16,0,0) });
-            tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "Wake My PC Agent", Visible = true };
+            tray = new NotifyIcon { Icon = Icon, Text = "Wake My PC Agent", Visible = true };
             var menu = new ContextMenuStrip(); menu.Items.Add("Mở / Ghép nối", null, (s,e) => Open()); menu.Items.Add("Hủy lệnh đang chờ", null, (s,e) => Cancel()); menu.Items.Add("Thoát Agent", null, (s,e) => { exiting = true; Close(); }); tray.ContextMenuStrip = menu; tray.DoubleClick += (s,e) => Open();
             server = new AgentServer(IPAddress.Any, 47991, () => secret, command => (string)Invoke(new Func<string>(() => HandleCommand(command))));
             timer = new System.Windows.Forms.Timer { Interval = 250 }; timer.Tick += Tick;

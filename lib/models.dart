@@ -84,11 +84,16 @@ class Pc {
     this.agentPaired = false,
     this.lastWake,
   });
-  Pc copy({bool? favorite, DateTime? lastWake, bool? agentPaired}) => Pc(
+  Pc copy({
+    bool? favorite,
+    DateTime? lastWake,
+    bool? agentPaired,
+    String? ip,
+  }) => Pc(
     id: id,
     name: name,
     mac: mac,
-    ip: ip,
+    ip: ip ?? this.ip,
     broadcast: broadcast,
     network: network,
     port: port,

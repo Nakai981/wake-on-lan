@@ -46,9 +46,18 @@ void main() {
       expect(find.text('Office PC'), findsNothing);
       expect(
         tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-        Colors.black,
+        paper,
       );
       expect(find.text('BẬT PC'), findsOneWidget);
+      expect(find.text('Điều khiển · Xem trước'), findsNothing);
+      await tester.tap(find.text('Đánh dấu PC đã bật'));
+      await tester.pumpAndSettle();
+      expect(find.text('Điều khiển · Xem trước'), findsOneWidget);
+      expect(find.text('Đã bật · bạn đã xác nhận'), findsOneWidget);
+      await tester.tap(find.text('Đánh dấu PC đã tắt'));
+      await tester.pumpAndSettle();
+      expect(find.text('Điều khiển · Xem trước'), findsNothing);
+      expect(find.text('Đã tắt · bạn đã xác nhận'), findsOneWidget);
       await tester.tap(find.text('Danh sách'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Chọn Office PC cho Home'));
@@ -73,7 +82,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-        Colors.black,
+        paper,
       );
       expect(find.text('BẬT PC'), findsOneWidget);
     },

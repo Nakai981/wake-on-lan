@@ -94,6 +94,14 @@ Agent có tùy chọn tự chạy khi đăng nhập Windows. Bản này không p
 
 ## Home tối giản theo máy mặc định
 
+### Giao diện Điều khiển (xem trước)
+
+Mở **Điều khiển · Xem trước** trên Home hoặc **Điều khiển** trong menu. Có ba tab: Touchpad (con trỏ mẫu, nhấp/kéo và tốc độ), Touch Bar (media, âm lượng, phím tắt, F1–F12), Bàn phím (nhập tiếng Việt, phím bổ trợ và touchpad nhỏ). Các thao tác chỉ cập nhật giao diện và phản hồi rung, chưa gửi lệnh đến Windows Agent. Không cần PC online để thử giao diện.
+
+### Trạng thái máy
+
+Giao diện sáng/tối hiện dùng chung cho toàn app. Công tắc mặt trời/mặt trăng trên thanh trên cùng đổi màu Home, Danh sách, Trợ giúp và các màn mở tiếp theo. Đổi giao diện không thay đổi trạng thái PC; nút Điều khiển trên Home vẫn chỉ hiện khi máy được xác nhận đã bật. Lựa chọn màu được giữ trong phiên app.
+
 - Chọn duy nhất một ngôi sao tại tab **Danh sách** để máy xuất hiện trên **Home**. Chưa chọn máy thì Home hướng dẫn chọn; không tự lấy máy khác thay thế.
 - Chưa có phản hồi: nền đen, nút bật tròn. Không phản hồi không đồng nghĩa chắc chắn PC đã tắt.
 - Đã xác nhận PC hoạt động: nền sáng, hai nút Sleep và Shutdown. Nếu chưa ghép Agent, các nút dẫn tới ghép nối.

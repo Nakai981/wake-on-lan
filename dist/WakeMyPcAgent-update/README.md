@@ -23,14 +23,6 @@
 
 ## Bảo mật và phạm vi
 
-### Ghép nối bằng QR
-
-Trên Agent, bấm **Hiện QR ghép nối**, chọn card mạng có MAC giống PC đã lưu trên điện thoại. Trên app: menu PC → **Ghép nối Windows Agent** → **Quét QR từ Windows Agent**. Cấp quyền camera, quét mã rồi bấm **Ghép nối** để xác thực. App điền IP từ QR và chỉ cập nhật IP đã lưu sau khi ghép nối thành công. Nhập mã tay vẫn dùng được.
-
-QR được tạo tại máy bằng QRCoder, chứa IP, MAC và mã ghép nối; không chia sẻ ảnh QR. Cửa sổ QR tự đóng sau 2 phút, nhưng mã vẫn hợp lệ cho đến khi bấm **Đổi mã**. Không có dịch vụ QR bên ngoài. Khi phân phối Agent mới, giữ `QRCoder.dll` cạnh EXE (Build.ps1 tự sao chép cùng giấy phép).
-
-Thay đổi này cần build lại cả app điện thoại và Agent; hot reload không cài được plugin camera mới. Bản EXE/ZIP cũ chưa chứa tính năng QR.
-
 - Mã ngẫu nhiên 128 bit; không gửi mã qua mạng. Windows bảo vệ mã bằng DPAPI CurrentUser.
 - TCP challenge/response HMAC-SHA256: challenge ngẫu nhiên riêng cho mỗi kết nối, client nonce và phản hồi ký. Mỗi kết nối nhận đúng một lệnh, giới hạn kích thước 512 byte, timeout 4 giây, tối đa 12 kết nối.
 - Chỉ hỗ trợ `status`, `sleep`, `shutdown`, `cancel`. Không có remote shell hay lệnh tùy ý.

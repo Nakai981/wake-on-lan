@@ -3,13 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'main.dart';
 import 'design.dart';
 import 'models.dart';
 import 'services.dart';
 import 'setup.dart';
 import 'agent_client.dart';
 import 'agent_pair.dart';
+import 'remote_control.dart';
+import 'app_theme.dart';
+import 'power_confirmation_effect.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -31,10 +33,12 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
-  AgentClient get agent => widget.agentClient ?? const AgentClient();
+  AgentClient get agent => widget.agentClient ?? AgentClient();
   final Set<String> powerBusy = {};
   final Set<String> onlineIds = {};
   final Set<String> manuallyOnline = {};
+  final Set<String> manuallyOffline = {};
+  int confirmationEffect = 0;
   Timer? statusTimer;
 
   Future<bool> pcReachable(Pc pc) async {
@@ -47,14 +51,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> pairAgent(Pc pc) async {
-    final paired = await Navigator.push<bool>(
+    final paired = await Navigator.push<Pc>(
       context,
       MaterialPageRoute(builder: (_) => AgentPairPage(pc: pc)),
     );
-    if (!mounted || paired != true) return;
+    if (!mounted || paired == null) return;
     try {
       await persist(
-        pcs.map((p) => p.id == pc.id ? p.copy(agentPaired: true) : p).toList(),
+        pcs
+            .map(
+              (p) =>
+                  p.id == pc.id ? p.copy(agentPaired: true, ip: paired.ip) : p,
+            )
+            .toList(),
       );
       if (mounted) {
         message(
@@ -82,7 +91,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Hủy'),
+            child: Text('Hủy'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -113,7 +122,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            duration: const Duration(seconds: 10),
+            duration: Duration(seconds: 10),
             content: Text('PC đã nhận lệnh $label, sẽ thực hiện sau 10 giây.'),
             action: SnackBarAction(
               label: 'Hủy lệnh',
@@ -173,7 +182,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       storageError = true;
     }
     refresh();
-    statusTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+    statusTimer = Timer.periodic(Duration(seconds: 15), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
         refresh();
       }
@@ -204,7 +213,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() => lan = current);
       for (final pc in List<Pc>.of(pcs)) {
         if (!mounted) return;
-        if (waking.contains(pc.id)) continue;
+        if (waking.contains(pc.id) || manuallyOffline.contains(pc.id)) continue;
         setState(() => statuses[pc.id] = 'Đang kiểm tra…');
         final online =
             current != null &&
@@ -213,7 +222,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await pcReachable(pc);
         if (!mounted) return;
         setState(() {
-          if (!waking.contains(pc.id)) {
+          if (!waking.contains(pc.id) && !manuallyOffline.contains(pc.id)) {
             statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác định';
             if (online) {
               manuallyOnline.remove(pc.id);
@@ -280,6 +289,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (waking.contains(pc.id)) return;
     setState(() {
       waking.add(pc.id);
+      manuallyOffline.remove(pc.id);
       manuallyOnline.remove(pc.id);
       statuses[pc.id] = 'Đang gửi tín hiệu…';
     });
@@ -299,7 +309,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() => statuses[pc.id] = 'Đã gửi · kiểm tra sau 10 giây');
       notifyWake('Đã gửi tín hiệu khởi động đến ${pc.name}.');
       wakeTimers[pc.id] = Timer(
-        const Duration(seconds: 10),
+        Duration(seconds: 10),
         () => checkWake(pc, current),
       );
       try {
@@ -341,7 +351,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         reason = 'Kết nối mạng đã thay đổi hoặc IP của PC không cùng mạng.';
       } else {
         online = await pcReachable(pc)
-            .timeout(const Duration(seconds: 5), onTimeout: () => false);
+            .timeout(Duration(seconds: 5), onTimeout: () => false);
       }
     } catch (_) {
       reason =
@@ -356,19 +366,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         builder: (ctx) => PopScope(
           canPop: false,
           child: AlertDialog(
-            icon: const Icon(Icons.desktop_windows_rounded, color: accent),
-            title: const Text('PC đã bật chưa?'),
+            icon: Icon(
+              Icons.desktop_windows_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text('PC đã bật chưa?'),
             content: Text(
               'App chưa nhận được phản hồi từ ${pc.name}. Hãy kiểm tra máy và xác nhận trạng thái.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Chưa bật'),
+                child: Text('Chưa bật'),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Đã bật'),
+                child: Text('Đã bật'),
               ),
             ],
           ),
@@ -442,15 +455,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           context: context,
           builder: (ctx) => AlertDialog(
             title: Text('Xóa “${pc.name}”?'),
-            content: const Text('Thông tin bật máy sẽ bị xóa khỏi điện thoại.'),
+            content: Text('Thông tin bật máy sẽ bị xóa khỏi điện thoại.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Hủy'),
+                child: Text('Hủy'),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Xóa'),
+                child: Text('Xóa'),
               ),
             ],
           ),
@@ -465,18 +478,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> openControls() => Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => RemoteControlPage(pcName: selectedPc?.name),
+    ),
+  );
+
   Future<void> openMenu() async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
                   IconTile(Icons.power_settings_new_rounded),
                   SizedBox(width: 14),
@@ -486,13 +505,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
-                        color: navy,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
+              menuRow(
+                ctx,
+                'controls',
+                Icons.touch_app_rounded,
+                'Điều khiển',
+                'Touchpad · Touch Bar · Bàn phím',
+              ),
               menuRow(
                 ctx,
                 'add',
@@ -529,22 +555,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'Hướng dẫn & trợ giúp',
                 'Thiết lập, kết nối và khắc phục lỗi',
               ),
-              const SizedBox(height: 18),
+              SizedBox(height: 18),
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: soft,
+                  color: Theme.of(context).colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.shield_outlined, color: accent, size: 20),
+                    Icon(
+                      Icons.shield_outlined,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 20,
+                    ),
                     SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Riêng tư từ thiết kế.\nKhông tài khoản, không máy chủ.',
                         style: TextStyle(
-                          color: accent,
+                          color: Theme.of(context).colorScheme.primary,
                           fontSize: 12,
                           height: 1.6,
                         ),
@@ -553,12 +583,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
-              const Center(
+              SizedBox(height: 20),
+              Center(
                 child: Text(
                   'WAKE MY PC  /  1.0',
                   style: TextStyle(
-                    color: muted,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 10,
                     letterSpacing: 2,
                   ),
@@ -571,6 +601,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
     if (!mounted || choice == null) return;
     switch (choice) {
+      case 'controls':
+        await openControls();
       case 'add':
         await edit();
       case 'devices':
@@ -582,7 +614,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           context,
           MaterialPageRoute(
             builder: (_) => Scaffold(
-              appBar: AppBar(title: const Text('Lịch sử hoạt động')),
+              appBar: AppBar(title: Text('Lịch sử hoạt động')),
               body: history(),
             ),
           ),
@@ -602,22 +634,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String subtitle, {
     bool enabled = true,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
+    padding: EdgeInsets.only(bottom: 8),
     child: ListTile(
       enabled: enabled,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      tileColor: Colors.white,
+      tileColor: Theme.of(context).colorScheme.surfaceContainerLow,
       leading: IconTile(icon, size: 42),
       title: Text(
         title,
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(fontSize: 12, color: muted),
+        style: TextStyle(
+          fontSize: 12,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: muted, size: 20),
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        size: 20,
+      ),
       onTap: () => Navigator.pop(ctx, id),
     ),
   );
@@ -628,19 +667,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       isScrollControlled: true,
       builder: (ctx) => SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const IconTile(Icons.desktop_windows_rounded),
-                  const SizedBox(width: 14),
+                  IconTile(Icons.desktop_windows_rounded),
+                  SizedBox(width: 14),
                   Expanded(
                     child: Text(
                       pc.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
                       ),
@@ -648,7 +687,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               menuRow(
                 ctx,
                 'pair',
@@ -691,11 +730,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18),
                 ),
-                leading: const Icon(
+                leading: Icon(
                   Icons.delete_outline_rounded,
                   color: Color(0xFFCE3956),
                 ),
-                title: const Text(
+                title: Text(
                   'Xóa máy',
                   style: TextStyle(
                     color: Color(0xFFCE3956),
@@ -723,9 +762,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final pc = selectedPc;
     final online = pc != null && onlineIds.contains(pc.id);
-    final dark = tab == 0 && !online;
-    final foreground = dark ? Colors.white : navy;
-    final background = dark ? Colors.black : paper;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final foreground = Theme.of(context).colorScheme.onSurface;
+    final background = Theme.of(context).colorScheme.surface;
     return Scaffold(
       backgroundColor: background,
       appBar: AppBar(
@@ -733,7 +772,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         foregroundColor: foreground,
         systemOverlayStyle: dark
             ? SystemUiOverlayStyle.light.copyWith(
-                systemNavigationBarColor: Colors.black,
+                systemNavigationBarColor: background,
               )
             : SystemUiOverlayStyle.dark,
         toolbarHeight: 60,
@@ -750,12 +789,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
         actions: [
+          const AppearanceSwitch(),
+          const SizedBox(width: 4),
           IconButton(
             tooltip: 'Kiểm tra lại',
             onPressed: refreshing ? null : refresh,
             icon: Icon(
               Icons.refresh_rounded,
-              color: dark ? Colors.white60 : muted,
+              color: dark
+                  ? Colors.white60
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           IconButton(
@@ -763,31 +806,48 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onPressed: openMenu,
             icon: Icon(Icons.more_horiz_rounded, color: foreground),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 650),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: tab == 1
-                  ? deviceList()
-                  : tab == 2
-                  ? HelpContent(key: const ValueKey('help'), notice: wakeHelp)
-                  : controlHome(pc, online),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: 650),
+                child: AnimatedSwitcher(
+                  duration: Duration(milliseconds: 300),
+                  child: tab == 1
+                      ? deviceList()
+                      : tab == 2
+                      ? HelpContent(key: ValueKey('help'), notice: wakeHelp)
+                      : controlHome(pc, online),
+                ),
+              ),
             ),
-          ),
+            if (tab == 0 && online && confirmationEffect > 0)
+              PowerConfirmationEffect(
+                key: ValueKey(confirmationEffect),
+                onEnd: () {
+                  if (mounted) setState(() => confirmationEffect = 0);
+                },
+              ),
+          ],
         ),
       ),
       bottomNavigationBar: NavigationBar(
         height: 68,
         backgroundColor: background,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: dark ? const Color(0xFF1D1D1D) : soft,
+        indicatorColor: dark
+            ? Theme.of(context).colorScheme.primaryContainer
+            : Theme.of(context).colorScheme.primaryContainer,
         selectedIndex: tab,
-        onDestinationSelected: (value) => setState(() => tab = value),
+        onDestinationSelected: (value) => setState(() {
+          tab = value;
+          confirmationEffect = 0;
+        }),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             fontFamily: uiFont,
@@ -796,14 +856,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ? (states.contains(WidgetState.selected)
                       ? Colors.white
                       : Colors.white54)
-                : (states.contains(WidgetState.selected) ? accent : muted),
+                : (states.contains(WidgetState.selected)
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ),
         destinations: [
           NavigationDestination(
             icon: Icon(
               Icons.power_settings_new_rounded,
-              color: dark ? Colors.white70 : muted,
+              color: dark
+                  ? Theme.of(context).colorScheme.onSurfaceVariant
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             selectedIcon: Icon(
               Icons.power_settings_new_rounded,
@@ -814,17 +878,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           NavigationDestination(
             icon: Icon(
               Icons.dns_outlined,
-              color: dark ? Colors.white54 : muted,
+              color: dark
+                  ? Colors.white54
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            selectedIcon: const Icon(Icons.dns_rounded, color: accent),
+            selectedIcon: Icon(
+              Icons.dns_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             label: 'Danh sách',
           ),
           NavigationDestination(
             icon: Icon(
               Icons.help_outline_rounded,
-              color: dark ? Colors.white54 : muted,
+              color: dark
+                  ? Colors.white54
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            selectedIcon: const Icon(Icons.help_rounded, color: accent),
+            selectedIcon: Icon(
+              Icons.help_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             label: 'Trợ giúp',
           ),
         ],
@@ -833,8 +907,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget controlHome(Pc? pc, bool online) {
-    final foreground = online ? navy : Colors.white;
-    final secondary = online ? muted : Colors.white54;
+    final foreground = Theme.of(context).colorScheme.onSurface;
+    final secondary = Theme.of(context).colorScheme.onSurfaceVariant;
     final busy =
         pc != null && (waking.contains(pc.id) || powerBusy.contains(pc.id));
     return LayoutBuilder(
@@ -844,27 +918,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: ConstrainedBox(
           constraints: BoxConstraints(minHeight: constraints.maxHeight),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            padding: EdgeInsets.symmetric(horizontal: 28, vertical: 24),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (pc == null) ...[
-                  const Icon(
+                  Icon(
                     Icons.star_outline_rounded,
-                    color: Colors.white38,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     size: 44,
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
+                  SizedBox(height: 24),
+                  Text(
                     'Chọn một máy cho Home',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 23,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Text(
                     storageError
                         ? 'Không đọc được dữ liệu đã lưu. Hãy khởi động lại app.'
@@ -872,14 +946,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     textAlign: TextAlign.center,
                     style: TextStyle(color: secondary, height: 1.7),
                   ),
-                  const SizedBox(height: 28),
+                  SizedBox(height: 28),
                   OutlinedButton(
                     onPressed: () => setState(() => tab = 1),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white24),
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
                     ),
-                    child: const Text('Chọn máy tính'),
+                    child: Text('Chọn máy tính'),
                   ),
                 ] else ...[
                   Text(
@@ -892,7 +968,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       letterSpacing: -.6,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  SizedBox(height: 10),
                   Text(
                     online
                         ? manuallyOnline.contains(pc.id)
@@ -902,26 +978,79 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ? (statuses[pc.id] ?? 'Đang gửi tín hiệu…')
                         : refreshing
                         ? 'Đang kiểm tra…'
+                        : manuallyOffline.contains(pc.id)
+                        ? 'Đã tắt · bạn đã xác nhận'
                         : 'Chưa nhận được phản hồi',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: secondary, fontSize: 13),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 12),
+                  Tooltip(
+                    message:
+                        'Chỉ đổi trạng thái trong app, không gửi lệnh đến PC',
+                    child: OutlinedButton.icon(
+                      onPressed: busy
+                          ? null
+                          : () {
+                              if (!online) HapticFeedback.lightImpact();
+                              setState(() {
+                                if (online) {
+                                  manuallyOnline.remove(pc.id);
+                                  manuallyOffline.add(pc.id);
+                                  onlineIds.remove(pc.id);
+                                } else {
+                                  confirmationEffect++;
+                                  manuallyOffline.remove(pc.id);
+                                  manuallyOnline.add(pc.id);
+                                  onlineIds.add(pc.id);
+                                }
+                                statuses[pc.id] = online
+                                    ? 'Đã tắt · bạn đã xác nhận'
+                                    : 'Đã bật · bạn đã xác nhận';
+                              });
+                            },
+                      icon: Icon(
+                        online
+                            ? Icons.toggle_on_rounded
+                            : Icons.toggle_off_outlined,
+                      ),
+                      label: Text(
+                        online ? 'Đánh dấu PC đã tắt' : 'Đánh dấu PC đã bật',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 40),
+                        foregroundColor: secondary,
+                        side: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        shape: const StadiumBorder(),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 28),
                   if (!online) ...[
                     AnimatedContainer(
-                      duration: const Duration(milliseconds: 450),
+                      duration: Duration(milliseconds: 450),
                       curve: Curves.easeOutCubic,
-                      padding: const EdgeInsets.all(10),
+                      padding: EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: busy ? accent : Colors.white12,
+                          color: busy
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.outlineVariant,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: (busy ? accent : Colors.white).withValues(
-                              alpha: .12,
-                            ),
+                            color:
+                                (busy
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.white)
+                                    .withValues(alpha: .12),
                             blurRadius: busy ? 56 : 32,
                             spreadRadius: busy ? 8 : 0,
                           ),
@@ -932,15 +1061,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       child: FilledButton(
                         onPressed: busy ? null : () => wake(pc),
                         style: FilledButton.styleFrom(
-                          shape: const CircleBorder(),
+                          shape: CircleBorder(),
                           padding: EdgeInsets.zero,
-                          backgroundColor: const Color(0xFFF4F7FA),
-                          foregroundColor: Colors.black,
-                          disabledBackgroundColor: const Color(0xFF202020),
-                          disabledForegroundColor: Colors.white38,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primary,
+                          foregroundColor: Theme.of(context)
+                              .colorScheme
+                              .onPrimary,
+                          disabledBackgroundColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          disabledForegroundColor: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
                         ),
                         child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 350),
+                          duration: Duration(milliseconds: 350),
                           child: Icon(
                             busy
                                 ? Icons.wifi_tethering_rounded
@@ -951,7 +1088,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 22),
+                    SizedBox(height: 22),
                     Text(
                       busy ? 'ĐÃ GỬI TÍN HIỆU' : 'BẬT PC',
                       style: TextStyle(
@@ -973,7 +1110,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             busy,
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        SizedBox(width: 16),
                         Expanded(
                           child: homePowerButton(
                             pc,
@@ -986,30 +1123,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                     ),
                     if (!pc.agentPaired) ...[
-                      const SizedBox(height: 18),
-                      const Text(
+                      SizedBox(height: 18),
+                      Text(
                         'Ghép nối Windows Agent để dùng Sleep và Shutdown.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: muted,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                           height: 1.6,
                         ),
                       ),
                       TextButton(
                         onPressed: () => pairAgent(pc),
-                        child: const Text('Ghép nối Agent'),
+                        child: Text('Ghép nối Agent'),
                       ),
                     ],
                   ],
-                  const SizedBox(height: 36),
+                  SizedBox(height: 36),
+                  if (online)
+                    TextButton.icon(
+                      onPressed: openControls,
+                      style: TextButton.styleFrom(foregroundColor: foreground),
+                      icon: Icon(Icons.touch_app_outlined, size: 19),
+                      label: Text('Điều khiển · Xem trước'),
+                    ),
                   TextButton(
                     onPressed: () => setState(() => tab = 1),
                     style: TextButton.styleFrom(foregroundColor: secondary),
-                    child: const Text(
-                      'Đổi máy tính',
-                      style: TextStyle(fontSize: 12),
-                    ),
+                    child: Text('Đổi máy tính', style: TextStyle(fontSize: 12)),
                   ),
                 ],
               ],
@@ -1033,18 +1174,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ? null
           : () => pc.agentPaired ? power(pc, command) : pairAgent(pc),
       style: FilledButton.styleFrom(
-        backgroundColor: command == 'sleep' ? Colors.white : navy,
-        foregroundColor: command == 'sleep' ? navy : Colors.white,
+        backgroundColor: command == 'sleep'
+            ? Theme.of(context).colorScheme.surfaceContainerLow
+            : Theme.of(context).colorScheme.primary,
+        foregroundColor: command == 'sleep'
+            ? Theme.of(context).colorScheme.onSurface
+            : Theme.of(context).colorScheme.onPrimary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 34),
-          const SizedBox(height: 18),
+          SizedBox(height: 18),
           Text(
             label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -1052,32 +1197,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   );
 
   Widget deviceList() => ListView(
-    key: const ValueKey('devices'),
-    padding: const EdgeInsets.all(20),
+    key: ValueKey('devices'),
+    padding: EdgeInsets.all(20),
     children: [
       Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Một dấu sao. Một máy trên Home.',
-              style: TextStyle(color: muted, fontSize: 12),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
             ),
           ),
           IconButton(
             tooltip: 'Thêm máy tính',
             onPressed: storageError ? null : () => edit(),
-            icon: const Icon(Icons.add_rounded, color: accent),
+            icon: Icon(
+              Icons.add_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ),
         ],
       ),
-      const SizedBox(height: 16),
+      SizedBox(height: 16),
       if (pcs.isEmpty) empty(),
       ...pcs.map(
         (pc) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: EdgeInsets.only(bottom: 12),
           child: Card(
             child: ListTile(
-              contentPadding: const EdgeInsets.fromLTRB(10, 12, 8, 12),
+              contentPadding: EdgeInsets.fromLTRB(10, 12, 8, 12),
               leading: IconButton(
                 tooltip: pc.favorite
                     ? 'Máy đang hiển thị trên Home'
@@ -1085,21 +1236,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 onPressed: () => action('favorite', pc),
                 icon: Icon(
                   pc.favorite ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: pc.favorite ? accent : muted,
+                  color: pc.favorite
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               title: Text(
                 pc.name,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
                 statuses[pc.id] ?? 'Chưa xác định',
-                style: const TextStyle(fontSize: 11, color: muted),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               trailing: IconButton(
                 tooltip: 'Tùy chọn máy',
                 onPressed: () => deviceMenu(pc),
-                icon: const Icon(Icons.more_horiz_rounded),
+                icon: Icon(Icons.more_horiz_rounded),
               ),
               onTap: pc.favorite
                   ? () => setState(() => tab = 0)
@@ -1113,21 +1269,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget empty() => Container(
     decoration: BoxDecoration(
-      color: navy,
+      color: Theme.of(context).colorScheme.onSurface,
       gradient: panelGradient,
       borderRadius: BorderRadius.circular(24),
     ),
-    padding: const EdgeInsets.all(22),
+    padding: EdgeInsets.all(22),
     child: Column(
       children: [
-        const IconTile(
+        IconTile(
           Icons.desktop_windows_rounded,
           color: mint,
           background: Color(0xFF20354D),
           size: 58,
         ),
-        const SizedBox(height: 18),
-        const Text(
+        SizedBox(height: 18),
+        Text(
           'PC của bạn, trong tầm tay',
           textAlign: TextAlign.center,
           style: TextStyle(
@@ -1136,24 +1292,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 8),
-        const Text(
+        SizedBox(height: 8),
+        Text(
           'Thêm PC để bật máy chỉ với một chạm.',
           textAlign: TextAlign.center,
           style: TextStyle(color: Color(0xFFB4C5D9), fontSize: 12, height: 1.6),
         ),
-        const SizedBox(height: 20),
+        SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: storageError ? null : () => edit(),
             style: FilledButton.styleFrom(
               backgroundColor: mint,
-              foregroundColor: navy,
-              minimumSize: const Size(48, 50),
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+              minimumSize: Size(48, 50),
             ),
-            icon: const Icon(Icons.add_rounded, size: 20),
-            label: const Text('Bắt đầu thiết lập'),
+            icon: Icon(Icons.add_rounded, size: 20),
+            label: Text('Bắt đầu thiết lập'),
           ),
         ),
       ],
@@ -1166,23 +1322,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final online = statuses[pc.id] == 'Đang hoạt động';
     return Container(
       decoration: BoxDecoration(
-        color: navy,
+        color: Theme.of(context).colorScheme.onSurface,
         gradient: panelGradient,
         borderRadius: BorderRadius.circular(22),
       ),
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const IconTile(
+              IconTile(
                 Icons.desktop_windows_rounded,
                 color: Color(0xFF7DD3FC),
                 background: Color(0xFF20354D),
                 size: 42,
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1191,25 +1347,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       pc.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 5),
+                    SizedBox(height: 5),
                     Row(
                       children: [
                         Icon(
                           Icons.circle,
                           size: 5,
-                          color: online ? mint : const Color(0xFFF4C76B),
+                          color: online ? mint : Color(0xFFF4C76B),
                         ),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             statuses[pc.id] ?? 'Chưa xác định',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Color(0xFFB4C5D9),
                               fontSize: 11,
                             ),
@@ -1221,7 +1377,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
               ),
               if (pc.favorite)
-                const Tooltip(
+                Tooltip(
                   message: 'Máy mặc định',
                   child: Icon(
                     Icons.star_rounded,
@@ -1232,7 +1388,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               IconButton(
                 tooltip: 'Tùy chọn máy',
                 onPressed: () => deviceMenu(pc),
-                icon: const Icon(
+                icon: Icon(
                   Icons.more_horiz_rounded,
                   color: Color(0xFFB4C5D9),
                   size: 22,
@@ -1241,7 +1397,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           if (changed)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 12),
               child: Text(
                 'Mạng đã thay đổi. Vào Chi tiết / Quét lại để cập nhật.',
@@ -1252,7 +1408,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
               ),
             ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -1261,13 +1417,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   : () => wake(pc),
               style: FilledButton.styleFrom(
                 backgroundColor: mint,
-                foregroundColor: navy,
-                minimumSize: const Size(48, 48),
+                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                minimumSize: Size(48, 48),
               ),
-              icon: const Icon(Icons.power_settings_new_rounded, size: 20),
+              icon: Icon(Icons.power_settings_new_rounded, size: 20),
               label: Text(
                 waking.contains(pc.id) ? 'ĐANG XỬ LÝ…' : 'BẬT PC',
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
                   letterSpacing: .8,
                 ),
@@ -1275,7 +1431,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ),
           if (pc.agentPaired) ...[
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -1284,10 +1440,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         waking.contains(pc.id) || powerBusy.contains(pc.id)
                         ? null
                         : () => power(pc, 'sleep'),
-                    icon: const Icon(Icons.bedtime_outlined, size: 17),
-                    label: const Text('Sleep'),
+                    icon: Icon(Icons.bedtime_outlined, size: 17),
+                    label: Text('Sleep'),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFB4C5D9),
+                      foregroundColor: Color(0xFFB4C5D9),
                     ),
                   ),
                 ),
@@ -1297,10 +1453,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         waking.contains(pc.id) || powerBusy.contains(pc.id)
                         ? null
                         : () => power(pc, 'shutdown'),
-                    icon: const Icon(Icons.power_settings_new, size: 17),
-                    label: const Text('Tắt máy'),
+                    icon: Icon(Icons.power_settings_new, size: 17),
+                    label: Text('Tắt máy'),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFFDA4AF),
+                      foregroundColor: Color(0xFFFDA4AF),
                     ),
                   ),
                 ),
@@ -1308,10 +1464,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ],
           if (pc.lastWake != null) ...[
-            const SizedBox(height: 10),
+            SizedBox(height: 10),
             Text(
               'Gửi gần nhất: ${stamp(pc.lastWake!)}',
-              style: const TextStyle(fontSize: 10, color: Color(0xFF9CAFC6)),
+              style: TextStyle(fontSize: 10, color: Color(0xFF9CAFC6)),
             ),
           ],
         ],
@@ -1322,35 +1478,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget history() {
     final entries = widget.store.history();
     return ListView(
-      key: const ValueKey('history'),
-      padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+      key: ValueKey('history'),
+      padding: EdgeInsets.fromLTRB(22, 12, 22, 24),
       children: [
-        const SectionTitle(
-          'Hoạt động gần đây',
-          'Mỗi lần kết nối, đều được ghi nhớ.',
-        ),
+        SectionTitle('Hoạt động gần đây', 'Mỗi lần kết nối, đều được ghi nhớ.'),
         if (entries.isEmpty)
           Card(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 40),
               child: Column(
                 children: [
-                  const IconTile(Icons.history_rounded, size: 64),
-                  const SizedBox(height: 20),
-                  const Text(
+                  IconTile(Icons.history_rounded, size: 64),
+                  SizedBox(height: 20),
+                  Text(
                     'Một khởi đầu mới',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
+                  SizedBox(height: 10),
+                  Text(
                     'Lịch sử sẽ xuất hiện tại đây\nsau khi bạn gửi tín hiệu bật PC.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: muted, height: 1.7),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      height: 1.7,
+                    ),
                   ),
-                  const SizedBox(height: 22),
+                  SizedBox(height: 22),
                   TextButton(
                     onPressed: () => setState(() => tab = 0),
-                    child: const Text('Về máy tính của tôi'),
+                    child: Text('Về máy tính của tôi'),
                   ),
                 ],
               ),
@@ -1362,26 +1518,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ? null
               : DateTime.tryParse(entry.substring(0, split));
           return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
+            padding: EdgeInsets.only(bottom: 10),
             child: Card(
               child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(
+                contentPadding: EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 8,
                 ),
-                leading: const IconTile(Icons.bolt_rounded, size: 40),
+                leading: IconTile(Icons.bolt_rounded, size: 40),
                 title: Text(
                   split < 0 ? entry : entry.substring(split + 1),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 5),
+                  padding: EdgeInsets.only(top: 5),
                   child: Text(
                     date == null ? '' : stamp(date),
-                    style: const TextStyle(color: muted, fontSize: 11),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               ),
@@ -1479,7 +1635,7 @@ class _WakePageState extends State<WakePage> {
           return;
         }
         setState(() => elapsed = watch.elapsed.inSeconds);
-        await Future<void>.delayed(const Duration(seconds: 2));
+        await Future<void>.delayed(Duration(seconds: 2));
       }
       if (mounted && active()) {
         setState(
@@ -1504,13 +1660,13 @@ class _WakePageState extends State<WakePage> {
     appBar: AppBar(title: Text(widget.pc.name)),
     body: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 550),
+        constraints: BoxConstraints(maxWidth: 550),
         child: ListView(
           shrinkWrap: true,
-          padding: const EdgeInsets.all(32),
+          padding: EdgeInsets.all(32),
           children: [
             WakeOrb(success: success, busy: busy),
-            const SizedBox(height: 32),
+            SizedBox(height: 32),
             Text(
               success
                   ? 'Xin chào, PC!'
@@ -1520,20 +1676,23 @@ class _WakePageState extends State<WakePage> {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineMedium,
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text(
               text,
               textAlign: TextAlign.center,
-              style: const TextStyle(height: 1.7, color: muted),
+              style: TextStyle(
+                height: 1.7,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             if (busy) ...[
               LinearProgressIndicator(
                 value: elapsed == 0
                     ? null
                     : (elapsed / widget.pc.timeout).clamp(0, 1),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               Text(
                 '$elapsed / ${widget.pc.timeout} giây',
                 textAlign: TextAlign.center,
@@ -1547,7 +1706,7 @@ class _WakePageState extends State<WakePage> {
                         'Đã dừng theo dõi. Tín hiệu đã gửi không thể thu hồi.';
                   });
                 },
-                child: const Text('Dừng theo dõi'),
+                child: Text('Dừng theo dõi'),
               ),
             ],
             if (!busy) ...[
@@ -1555,7 +1714,7 @@ class _WakePageState extends State<WakePage> {
                 onPressed: success ? () => Navigator.pop(context) : run,
                 child: Text(success ? 'Hoàn tất' : 'Thử lại'),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               TextButton(
                 onPressed: () => Navigator.push(
                   context,
@@ -1564,7 +1723,7 @@ class _WakePageState extends State<WakePage> {
                         DiagnosticsPage(pc: widget.pc, net: widget.net),
                   ),
                 ),
-                child: const Text('Kiểm tra cấu hình'),
+                child: Text('Kiểm tra cấu hình'),
               ),
             ],
           ],
@@ -1580,27 +1739,29 @@ class DiagnosticsPage extends StatelessWidget {
   const DiagnosticsPage({super.key, required this.pc, required this.net});
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Kiểm tra cấu hình')),
+    appBar: AppBar(title: Text('Kiểm tra cấu hình')),
     body: FutureBuilder<Lan?>(
       future: net.network(),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(child: CircularProgressIndicator());
         }
         final lan = snapshot.data;
         Widget row(bool ok, String title, String subtitle) => ListTile(
           leading: Icon(
             ok ? Icons.check_circle_outline : Icons.help_outline,
-            color: ok ? green : Colors.orange.shade700,
+            color: ok
+                ? Theme.of(context).colorScheme.primary
+                : Colors.orange.shade700,
           ),
           title: Text(title),
           subtitle: Text(subtitle),
         );
         return ListView(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(20),
           children: [
             Text(pc.name, style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             row(
               lan != null,
               'Kết nối Wi-Fi',
@@ -1631,7 +1792,7 @@ class DiagnosticsPage extends StatelessWidget {
               'Wake on Magic Packet trong Windows',
               'Cần xác nhận trực tiếp trên PC.',
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             const HelpContent(embedded: true),
           ],
         );
@@ -1660,30 +1821,27 @@ class HelpContent extends StatelessWidget {
       children: [
         if (notice != null)
           Container(
-            margin: const EdgeInsets.only(bottom: 20),
-            padding: const EdgeInsets.all(18),
+            margin: EdgeInsets.only(bottom: 20),
+            padding: EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF5E2),
+              color: Color(0xFFFFF5E2),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Text(
               notice!,
-              style: const TextStyle(color: Color(0xFF805510), height: 1.6),
+              style: TextStyle(color: Color(0xFF805510), height: 1.6),
             ),
           ),
         if (!embedded) ...[
-          const SectionTitle(
-            'Luôn có lời giải',
-            'Thiết lập một lần. Dùng mỗi ngày.',
-          ),
+          SectionTitle('Luôn có lời giải', 'Thiết lập một lần. Dùng mỗi ngày.'),
           Container(
-            padding: const EdgeInsets.all(20),
-            margin: const EdgeInsets.only(bottom: 24),
+            padding: EdgeInsets.all(20),
+            margin: EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
-              color: soft,
+              color: Theme.of(context).colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(22),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 IconTile(
                   Icons.tips_and_updates_outlined,
@@ -1706,7 +1864,7 @@ class HelpContent extends StatelessWidget {
                       Text(
                         'Bắt đầu với hướng dẫn bên dưới.',
                         style: TextStyle(
-                          color: muted,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                           height: 1.5,
                         ),
@@ -1717,28 +1875,25 @@ class HelpContent extends StatelessWidget {
               ],
             ),
           ),
-          const Text(
+          Text(
             'HƯỚNG DẪN & GIẢI ĐÁP',
             style: TextStyle(
               fontSize: 10,
               letterSpacing: 2,
-              color: muted,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: 14),
         ],
         ...guides.entries.indexed.map(
           (item) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
+            padding: EdgeInsets.only(bottom: 10),
             child: Card(
               child: ExpansionTile(
-                shape: const Border(),
-                collapsedShape: const Border(),
-                tilePadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
-                ),
+                shape: Border(),
+                collapsedShape: Border(),
+                tilePadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 leading: Icon(
                   [
                     Icons.bolt_outlined,
@@ -1749,24 +1904,21 @@ class HelpContent extends StatelessWidget {
                     Icons.power_settings_new_rounded,
                     Icons.shield_outlined,
                   ][item.$1],
-                  color: accent,
+                  color: Theme.of(context).colorScheme.primary,
                   size: 21,
                 ),
                 title: Text(
                   item.$2.key,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+                    padding: EdgeInsets.fromLTRB(18, 0, 18, 20),
                     child: Text(
                       item.$2.value,
-                      style: const TextStyle(
+                      style: TextStyle(
                         height: 1.7,
-                        color: muted,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 13,
                       ),
                     ),
@@ -1781,7 +1933,7 @@ class HelpContent extends StatelessWidget {
     return embedded
         ? content
         : SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+            padding: EdgeInsets.fromLTRB(22, 12, 22, 24),
             child: content,
           );
   }

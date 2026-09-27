@@ -14,13 +14,13 @@ const panelGradient = LinearGradient(
 
 class IconTile extends StatelessWidget {
   final IconData icon;
-  final Color color, background;
+  final Color? color, background;
   final double size;
   const IconTile(
     this.icon, {
     super.key,
-    this.color = accent,
-    this.background = soft,
+    this.color,
+    this.background,
     this.size = 48,
   });
   @override
@@ -28,10 +28,14 @@ class IconTile extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: background,
+      color: background ?? Theme.of(context).colorScheme.primaryContainer,
       borderRadius: BorderRadius.circular(size * .32),
     ),
-    child: Icon(icon, color: color, size: size * .48),
+    child: Icon(
+      icon,
+      color: color ?? Theme.of(context).colorScheme.primary,
+      size: size * .48,
+    ),
   );
 }
 
@@ -165,9 +169,15 @@ class SectionTitle extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(title, style: Theme.of(context).textTheme.headlineLarge),
-      const SizedBox(height: 8),
-      Text(subtitle, style: const TextStyle(color: muted, height: 1.5)),
-      const SizedBox(height: 24),
+      SizedBox(height: 8),
+      Text(
+        subtitle,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          height: 1.5,
+        ),
+      ),
+      SizedBox(height: 24),
     ],
   );
 }
@@ -183,21 +193,24 @@ class SetupStepper extends StatelessWidget {
         children: [
           Text(
             'BƯỚC ${step + 1} / 5',
-            style: const TextStyle(
-              color: accent,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
               letterSpacing: 1.8,
               fontWeight: FontWeight.w800,
               fontSize: 10,
             ),
           ),
-          const Spacer(),
+          Spacer(),
           Text(
             ['Kết nối', 'Chuẩn bị', 'Tìm máy', 'Thông tin', 'Hoàn tất'][step],
-            style: const TextStyle(color: muted, fontSize: 11),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
           ),
         ],
       ),
-      const SizedBox(height: 16),
+      SizedBox(height: 16),
       Row(
         children: List.generate(
           5,
@@ -205,10 +218,12 @@ class SetupStepper extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.only(right: i == 4 ? 0 : 7),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
+                duration: Duration(milliseconds: 250),
                 height: 5,
                 decoration: BoxDecoration(
-                  color: i <= step ? accent : const Color(0xFFDCE5EF),
+                  color: i <= step
+                      ? Theme.of(context).colorScheme.primary
+                      : Color(0xFFDCE5EF),
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
@@ -216,7 +231,7 @@ class SetupStepper extends StatelessWidget {
           ),
         ),
       ),
-      const SizedBox(height: 26),
+      SizedBox(height: 26),
     ],
   );
 }
@@ -237,7 +252,7 @@ class WakeOrb extends StatelessWidget {
             height: 202,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFDCE5EF)),
+              border: Border.all(color: Color(0xFFDCE5EF)),
             ),
           ),
           Container(
@@ -245,27 +260,30 @@ class WakeOrb extends StatelessWidget {
             height: 168,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: soft.withValues(alpha: .65),
+              color: Theme.of(context).colorScheme.primaryContainer
+                  .withValues(alpha: .65),
             ),
           ),
           if (busy)
-            const SizedBox(
+            SizedBox(
               width: 168,
               height: 168,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: accent,
+                color: Theme.of(context).colorScheme.primary,
                 strokeCap: StrokeCap.round,
               ),
             ),
           AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
+            duration: Duration(milliseconds: 300),
             width: 128,
             height: 128,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: success ? const Color(0xFF138268) : navy,
-              boxShadow: const [
+              color: success
+                  ? Color(0xFF138268)
+                  : Theme.of(context).colorScheme.onSurface,
+              boxShadow: [
                 BoxShadow(
                   color: Color(0x222563EB),
                   blurRadius: 30,

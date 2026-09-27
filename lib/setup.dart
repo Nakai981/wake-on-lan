@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'models.dart';
 import 'services.dart';
-import 'main.dart';
 import 'design.dart';
 import 'screens.dart';
 
@@ -203,16 +202,16 @@ class _SetupPageState extends State<SetupPage> {
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 650),
+          constraints: BoxConstraints(maxWidth: 650),
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                padding: EdgeInsets.fromLTRB(24, 12, 24, 0),
                 child: SetupStepper(step: step),
               ),
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: EdgeInsets.symmetric(horizontal: 24),
                   children: [
                     Text(
                       [
@@ -224,16 +223,19 @@ class _SetupPageState extends State<SetupPage> {
                       ][step],
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                    const SizedBox(height: 14),
+                    SizedBox(height: 14),
                     if (step == 0) ...[
-                      const Text(
+                      Text(
                         'Kết nối điện thoại với Wi-Fi cùng mạng với PC. Nên cắm dây LAN cho máy tính.',
-                        style: TextStyle(height: 1.7, color: muted),
+                        style: TextStyle(
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                      const SizedBox(height: 24),
+                      SizedBox(height: 24),
                       Card(
                         child: Padding(
-                          padding: const EdgeInsets.all(24),
+                          padding: EdgeInsets.all(24),
                           child: Column(
                             children: [
                               Icon(
@@ -241,75 +243,86 @@ class _SetupPageState extends State<SetupPage> {
                                     ? Icons.wifi_rounded
                                     : Icons.wifi_off_rounded,
                                 size: 48,
-                                color: green,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
-                              const SizedBox(height: 16),
+                              SizedBox(height: 16),
                               Text(
                                 checking
                                     ? 'Đang kiểm tra…'
                                     : lan != null
                                     ? 'Đã kết nối Wi-Fi'
                                     : 'Chưa nhận được mạng Wi-Fi',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                                style: TextStyle(fontWeight: FontWeight.w700),
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(height: 8),
                               Text(
                                 lan == null
                                     ? 'Bật Wi-Fi rồi kiểm tra lại.'
                                     : 'Mạng: ${ipv4String(lan!.network)}',
-                                style: const TextStyle(color: muted),
+                                style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
                               ),
                               TextButton(
                                 onPressed: checking ? null : checkNetwork,
-                                child: const Text('Kiểm tra lại'),
+                                child: Text('Kiểm tra lại'),
                               ),
                             ],
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
-                      const Text(
+                      SizedBox(height: 24),
+                      Text(
                         'Wake My PC cần truy cập mạng cục bộ để tìm và bật máy. Khi hệ thống hỏi, hãy chọn Cho phép. Thông tin máy chỉ được lưu trên điện thoại.',
-                        style: TextStyle(height: 1.7, color: muted),
+                        style: TextStyle(
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                     if (step == 1) ...[
-                      const Text(
+                      Text(
                         'Chỉ cần thực hiện một lần trên PC. Giữ máy đang bật trong lúc tìm thiết bị.',
-                        style: TextStyle(height: 1.7, color: muted),
+                        style: TextStyle(
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                      const SizedBox(height: 20),
-                      const HelpContent(embedded: true),
+                      SizedBox(height: 20),
+                      HelpContent(embedded: true),
                     ],
                     if (step == 2) ...[
-                      const Text(
+                      Text(
                         'Giữ PC đang bật và cùng mạng. Chọn địa chỉ của máy trong kết quả, hoặc thêm thủ công nếu không tìm thấy.',
-                        style: TextStyle(height: 1.7, color: muted),
+                        style: TextStyle(
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                      const SizedBox(height: 20),
+                      SizedBox(height: 20),
                       FilledButton.icon(
                         onPressed: scanning || selecting ? null : scan,
-                        icon: const Icon(Icons.radar_rounded),
+                        icon: Icon(Icons.radar_rounded),
                         label: Text(
                           scanning ? 'Đang tìm thiết bị…' : 'Quét mạng',
                         ),
                       ),
                       if (scanning) ...[
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20),
                         LinearProgressIndicator(
                           value: total == 0 ? null : done / total,
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text('Đã kiểm tra $done / $total'),
                         TextButton(
                           onPressed: () => setState(() => cancelled = true),
-                          child: const Text('Dừng quét'),
+                          child: Text('Dừng quét'),
                         ),
                       ],
                       if (scanned && found.isEmpty)
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(vertical: 20),
                           child: Text(
                             'Chưa tìm thấy thiết bị phản hồi. PC có thể chặn kiểm tra kết nối; bạn vẫn có thể thêm bằng MAC.',
@@ -318,24 +331,24 @@ class _SetupPageState extends State<SetupPage> {
                       ...found.map(
                         (address) => ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(
+                          leading: Icon(
                             Icons.computer_rounded,
-                            color: green,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
-                          title: const Text('Thiết bị trong mạng'),
+                          title: Text('Thiết bị trong mạng'),
                           subtitle: Text(address),
-                          trailing: const Icon(Icons.chevron_right),
+                          trailing: Icon(Icons.chevron_right),
                           onTap: scanning || selecting
                               ? null
                               : () => select(address),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      const Text(
+                      SizedBox(height: 16),
+                      Text(
                         'Quét tối đa 254 địa chỉ gần điện thoại. Kết quả có thể bao gồm router và thiết bị khác; đối chiếu IPv4 trong ipconfig /all trên PC.',
                         style: TextStyle(
                           fontSize: 12,
-                          color: muted,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           height: 1.6,
                         ),
                       ),
@@ -345,16 +358,21 @@ class _SetupPageState extends State<SetupPage> {
                         key: form,
                         child: Column(
                           children: [
-                            const Text(
+                            Text(
                               'Đặt một tên dễ nhớ. MAC là địa chỉ card mạng của PC, chỉ cần nhập một lần.',
-                              style: TextStyle(height: 1.7, color: muted),
+                              style: TextStyle(
+                                height: 1.7,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
                             ),
-                            const SizedBox(height: 24),
+                            SizedBox(height: 24),
                             TextFormField(
                               controller: name,
                               textCapitalization: TextCapitalization.sentences,
                               maxLength: 40,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Tên máy tính',
                                 hintText: 'Ví dụ: PC Gaming',
                               ),
@@ -362,11 +380,11 @@ class _SetupPageState extends State<SetupPage> {
                                   ? 'Hãy đặt tên cho máy tính.'
                                   : null,
                             ),
-                            const SizedBox(height: 14),
+                            SizedBox(height: 14),
                             TextFormField(
                               controller: mac,
                               autocorrect: false,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Địa chỉ MAC',
                                 hintText: 'A4:BB:6D:12:34:56',
                               ),
@@ -385,7 +403,7 @@ class _SetupPageState extends State<SetupPage> {
                                 onPressed: () => showModalBottomSheet(
                                   context: context,
                                   isScrollControlled: true,
-                                  builder: (_) => const SafeArea(
+                                  builder: (_) => SafeArea(
                                     child: Padding(
                                       padding: EdgeInsets.all(24),
                                       child: Text(
@@ -395,14 +413,14 @@ class _SetupPageState extends State<SetupPage> {
                                     ),
                                   ),
                                 ),
-                                icon: const Icon(Icons.help_outline, size: 18),
-                                label: const Text('Cách tìm MAC'),
+                                icon: Icon(Icons.help_outline, size: 18),
+                                label: Text('Cách tìm MAC'),
                               ),
                             ),
                             TextFormField(
                               controller: ip,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Địa chỉ IP (không bắt buộc)',
                                 helperText:
                                     'Giúp kiểm tra PC đã hoạt động hay chưa.',
@@ -411,13 +429,13 @@ class _SetupPageState extends State<SetupPage> {
                             ),
                             TextButton.icon(
                               onPressed: () => setState(() => step = 2),
-                              icon: const Icon(Icons.radar),
-                              label: const Text('Tìm / quét lại máy tính'),
+                              icon: Icon(Icons.radar),
+                              label: Text('Tìm / quét lại máy tính'),
                             ),
                             ExpansionTile(
                               maintainState: true,
                               tilePadding: EdgeInsets.zero,
-                              title: const Text('Cài đặt nâng cao'),
+                              title: Text('Cài đặt nâng cao'),
                               children: [
                                 TextFormField(
                                   controller: broadcast,
@@ -432,67 +450,78 @@ class _SetupPageState extends State<SetupPage> {
                                   ),
                                   validator: validIp,
                                 ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: 16),
                                 TextFormField(
                                   controller: port,
                                   keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Cổng UDP',
                                   ),
                                   validator: (v) => validNumber(v, 1, 65535),
                                 ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: 16),
                                 TextFormField(
                                   controller: retries,
                                   keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Số lần gửi tín hiệu',
                                   ),
                                   validator: (v) => validNumber(v, 1, 10),
                                 ),
-                                const SizedBox(height: 16),
-                                const Text(
+                                SizedBox(height: 16),
+                                Text(
                                   'App tự kiểm tra PC sau khoảng 10 giây kể từ khi gửi tín hiệu.',
-                                  style: TextStyle(color: muted, fontSize: 12),
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: 16),
                               ],
                             ),
                           ],
                         ),
                       ),
                     if (step == 4) ...[
-                      const SizedBox(height: 12),
-                      const Icon(
+                      SizedBox(height: 12),
+                      Icon(
                         Icons.task_alt_rounded,
                         size: 84,
-                        color: green,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
-                      const SizedBox(height: 24),
+                      SizedBox(height: 24),
                       Text(
                         name.text,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      const Text(
+                      SizedBox(height: 20),
+                      Text(
                         'Lưu máy rồi cho PC chuyển sang Sleep. Từ màn hình chính, nhấn BẬT PC để kiểm tra Wake-on-LAN.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(height: 1.7, color: muted),
+                        style: TextStyle(
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                      const SizedBox(height: 20),
-                      const Text(
+                      SizedBox(height: 20),
+                      Text(
                         'App sẽ gửi tín hiệu và theo dõi phản hồi nếu bạn đã nhập IP. PC cần được cấu hình Wake-on-LAN và vẫn cắm nguồn.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(height: 1.7, color: muted),
+                        style: TextStyle(
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                     if (error != null)
                       Padding(
-                        padding: const EdgeInsets.only(top: 16),
+                        padding: EdgeInsets.only(top: 16),
                         child: Text(
                           error!,
                           style: TextStyle(
@@ -500,12 +529,12 @@ class _SetupPageState extends State<SetupPage> {
                           ),
                         ),
                       ),
-                    const SizedBox(height: 24),
+                    SizedBox(height: 24),
                   ],
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(24),
                 child: Row(
                   children: [
                     if (step > 0) ...[
@@ -514,9 +543,9 @@ class _SetupPageState extends State<SetupPage> {
                         onPressed: scanning || selecting
                             ? null
                             : () => setState(() => step--),
-                        icon: const Icon(Icons.arrow_back),
+                        icon: Icon(Icons.arrow_back),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                     ],
                     Expanded(
                       child: FilledButton(
