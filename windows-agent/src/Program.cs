@@ -12,11 +12,36 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Windows.Forms;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.Win32;
 
 namespace WakeMyPc {
     static class Program {
         [STAThread] static void Main(string[] args) {
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, eventArgs) => {
+                if (new AssemblyName(eventArgs.Name).Name != "QRCoder") return null;
+                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("WakeMyPc.QRCoder.dll")) {
+                    if (stream == null) return null;
+                    using (var bytes = new MemoryStream()) {
+                        stream.CopyTo(bytes);
+                        return Assembly.Load(bytes.ToArray());
+                    }
+                }
+            };
+            Run(args);
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)] static void Run(string[] args) {
+            if (args.Length == 2 && args[0] == "--test-qr") {
+                // Packaging smoke test: no listener, key persistence, startup or input injection.
+                Application.EnableVisualStyles();
+                using (var qr = new PairingQrForm(new byte[16])) {
+                    var picture = qr.Controls[0].Controls.OfType<PictureBox>().Single();
+                    if (picture.Image == null) throw new InvalidOperationException("QR test needs a connected network adapter");
+                    File.WriteAllText(args[1], "qr-ready");
+                }
+                return;
+            }
             if (args.Length == 4 && args[0] == "--test-server") {
                 // This isolated mode can never call a power API, persist a key,
                 // enable startup, or bind anything except loopback.
@@ -74,7 +99,7 @@ namespace WakeMyPc {
             using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) startup.Checked = key != null && key.GetValue("WakeMyPcAgent") != null;
             startup.CheckedChanged += (s,e) => { try { using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) { if (startup.Checked) key.SetValue("WakeMyPcAgent", "\"" + Application.ExecutablePath + "\" --background"); else key.DeleteValue("WakeMyPcAgent", false); } } catch (Exception ex) { MessageBox.Show(ex.Message); } }; layout.Controls.Add(startup);
             var cancel = new Button { Text = "Hủy lệnh đang chờ", Height = 40, Dock = DockStyle.Top }; cancel.Click += (s,e) => Cancel(); layout.Controls.Add(cancel);
-            layout.Controls.Add(new Label { Text = "Đóng cửa sổ để tiếp tục chạy ở khay hệ thống.\nCho phép TCP 47991 trên mạng Private (chạy Enable-Firewall.ps1).\nLệnh Sleep/Tắt máy chờ 10 giây để bạn có thể hủy.\nTắt máy không ép đóng ứng dụng chưa lưu.", AutoSize = true, ForeColor = Color.FromArgb(99,117,139), Margin = new Padding(0,16,0,0) });
+            layout.Controls.Add(new Label { Text = "Đóng cửa sổ để tiếp tục chạy ở khay hệ thống.\nCho phép Agent qua Windows Firewall trên mạng Private.\nLệnh Sleep/Tắt máy chờ 10 giây để bạn có thể hủy.\nTắt máy không ép đóng ứng dụng chưa lưu.", AutoSize = true, ForeColor = Color.FromArgb(99,117,139), Margin = new Padding(0,16,0,0) });
             tray = new NotifyIcon { Icon = Icon, Text = "Wake My PC Agent", Visible = true };
             var menu = new ContextMenuStrip(); menu.Items.Add("Mở / Ghép nối", null, (s,e) => Open()); menu.Items.Add("Hủy lệnh đang chờ", null, (s,e) => Cancel()); menu.Items.Add("Thoát Agent", null, (s,e) => { exiting = true; Close(); }); tray.ContextMenuStrip = menu; tray.DoubleClick += (s,e) => Open();
             server = new AgentServer(IPAddress.Any, 47991, () => secret, command => (string)Invoke(new Func<string>(() => HandleCommand(command))));

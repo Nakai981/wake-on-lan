@@ -5,6 +5,7 @@ import 'models.dart';
 import 'design.dart';
 import 'pairing_qr.dart';
 import 'pairing_scanner.dart';
+import 'agent_help.dart';
 
 class AgentPairPage extends StatefulWidget {
   final Pc pc;
@@ -126,6 +127,19 @@ class _AgentPairPageState extends State<AgentPairPage> {
             label: const Text('Quét QR từ Windows Agent'),
           ),
         const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: busy
+              ? null
+              : () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AgentHelpPage(),
+                  ),
+                ),
+          icon: const Icon(Icons.help_outline_rounded),
+          label: const Text('Chưa có Agent? Trợ giúp'),
+        ),
+        const SizedBox(height: 16),
         Text(
           'IP máy tính: ${scannedIp ?? (widget.pc.ip.isEmpty ? 'Chưa có — quét QR để điền IP' : widget.pc.ip)}',
         ),

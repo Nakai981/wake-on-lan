@@ -13,6 +13,7 @@ import 'remote_control.dart';
 import 'app_theme.dart';
 import 'power_confirmation_effect.dart';
 import 'wake_console.dart';
+import 'agent_help.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -1970,6 +1971,16 @@ class HelpContent extends StatelessWidget {
           ),
           SizedBox(height: 14),
         ],
+        const Card(
+          child: ExpansionTile(
+            leading: Icon(Icons.desktop_windows_rounded),
+            title: Text('Windows Agent · Tải xuống & quyền riêng tư'),
+            children: [
+              Padding(padding: EdgeInsets.all(18), child: AgentHelpContent()),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
         ...guides.entries.indexed.map(
           (item) => Padding(
             padding: EdgeInsets.only(bottom: 10),

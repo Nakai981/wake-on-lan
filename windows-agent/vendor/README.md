@@ -7,4 +7,4 @@ Downloaded from https://api.nuget.org/v3-flatcontainer/qrcoder/1.7.0/qrcoder.1.7
 
 DLL SHA256: `1FCB252A5F758D5F8AF8581A9250BC2114420E15B7FEE61DF22289D8627FADCD`
 
-Build.ps1 references this local copy and includes the DLL and license in its output. QR generation stays entirely local.
+Build.ps1 references this local copy and embeds the DLL and MIT license as executable resources. The release needs only WakeMyPcAgent.exe; QR generation stays entirely local.

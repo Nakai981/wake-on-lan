@@ -5,6 +5,7 @@ import 'models.dart';
 import 'pairing_qr.dart';
 import 'pairing_scanner.dart';
 import 'services.dart';
+import 'agent_help.dart';
 
 class SetupPage extends StatefulWidget {
   final NetworkService net;
@@ -30,7 +31,7 @@ class _SetupPageState extends State<SetupPage> {
       retries = TextEditingController(text: '3'),
       timeout = TextEditingController(text: '60'),
       startup = TextEditingController(text: '20');
-  int mode = 0, done = 0, total = 0, generation = 0, metadataGeneration = 0;
+  int mode = 2, done = 0, total = 0, generation = 0, metadataGeneration = 0;
   bool scanning = false, loading = false, saving = false;
   Lan? lan;
   String? error, info, autoName, autoMac;
@@ -315,35 +316,54 @@ class _SetupPageState extends State<SetupPage> {
               child: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  SegmentedButton<int>(
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: 0,
-                        label: Text('Quét LAN'),
-                        icon: Icon(Icons.radar),
-                      ),
-                      ButtonSegment(
-                        value: 1,
-                        label: Text('Nhập tay'),
-                        icon: Icon(Icons.edit_outlined),
-                      ),
-                      ButtonSegment(
-                        value: 2,
-                        label: Text('QR Agent'),
-                        icon: Icon(Icons.qr_code_scanner),
-                      ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final option in const [
+                        (2, 'QR Agent', Icons.qr_code_scanner),
+                        (0, 'Quét LAN', Icons.radar),
+                        (1, 'Nhập tay', Icons.edit_outlined),
+                      ]) ...[
+                        if (option.$1 != 2) const SizedBox(width: 8),
+                        Expanded(
+                          child: Semantics(
+                            selected: mode == option.$1,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                  horizontal: 4,
+                                ),
+                                backgroundColor: mode == option.$1
+                                    ? Theme.of(context)
+                                          .colorScheme
+                                          .primaryContainer
+                                    : null,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              onPressed: saving
+                                  ? null
+                                  : () {
+                                      stopScan();
+                                      setState(() {
+                                        mode = option.$1;
+                                        error = null;
+                                      });
+                                    },
+                              child: Column(
+                                children: [
+                                  Icon(option.$3),
+                                  const SizedBox(height: 8),
+                                  Text(option.$2, textAlign: TextAlign.center),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                    selected: {mode},
-                    onSelectionChanged: saving
-                        ? null
-                        : (value) {
-                            stopScan();
-                            setState(() {
-                              mode = value.first;
-                              error = null;
-                            });
-                          },
                   ),
                   const SizedBox(height: 20),
                   if (mode == 0) ...[
@@ -408,18 +428,51 @@ class _SetupPageState extends State<SetupPage> {
                     ),
                   ],
                   if (mode == 2) ...[
-                    const Text(
-                      'Trên Windows Agent: Hiện QR ghép nối → chọn card Ethernet.',
+                    Icon(
+                      Icons.qr_code_2_rounded,
+                      size: 56,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(height: 12),
-                    OutlinedButton.icon(
+                    Text(
+                      'Thêm PC bằng QR Agent',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Trên PC, mở Windows Agent → Hiện QR ghép nối. Chọn Wi-Fi hoặc Ethernet đang kết nối, rồi quét mã bằng điện thoại. Ưu tiên Ethernet để bật PC bằng Wake-on-LAN.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(height: 1.6),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
                       onPressed: saving ? null : scanQr,
                       icon: const Icon(Icons.qr_code_scanner),
                       label: const Text('Quét QR Windows Agent'),
                     ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () {
+                              stopScan();
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const AgentHelpPage(),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.help_outline_rounded),
+                      label: const Text('Chưa có Agent? Trợ giúp'),
+                    ),
                     if (qr != null)
-                      const Text(
-                        'Đã đọc QR. Hoàn tất sẽ xác thực Agent trước khi lưu.',
+                      const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text(
+                          'Đã đọc QR. Hoàn tất sẽ xác thực Agent trước khi lưu.',
+                        ),
                       ),
                     const SizedBox(height: 16),
                   ],
@@ -451,6 +504,7 @@ class _SetupPageState extends State<SetupPage> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(info!),
                     ),
+                  if (info == null) const SizedBox(height: 16),
                   field(
                     'MAC Ethernet',
                     mac,

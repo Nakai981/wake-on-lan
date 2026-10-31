@@ -90,6 +90,8 @@ Bảng màu hiện tại: nền xám lạnh, thẻ xanh đen chuyển sắc, xan
 
 ## Windows Agent — Sleep và tắt máy
 
+Tải [Windows Agent (.exe)](https://github.com/Nakai981/wake-on-lan/releases/latest/download/WakeMyPcAgent.exe) từ GitHub Releases. Bản mới nhúng thư viện QR trong EXE, không cần tải DLL hay ZIP. Trong Flutter: **Thêm máy tính → QR Agent → Chưa có Agent? Trợ giúp** có nút tải, sao chép link cho PC, hướng dẫn Wi-Fi/Ethernet và thông tin quyền riêng tư. Xem thêm [hướng dẫn Agent](windows-agent/README.md).
+
 Tải bộ `dist/WakeMyPcAgent.zip`, giải nén và chạy `WakeMyPcAgent.exe` trên PC. Xem [hướng dẫn Agent](windows-agent/README.md) để mở firewall Private TCP 47991 và ghép nối.
 
 Trong app, mở menu của PC → **Ghép nối Windows Agent**. Sau khi xác thực mã, Home hiển thị **Sleep** và **Tắt máy**. Cả hai có xác nhận trước khi gửi; PC chờ 10 giây và có thể hủy qua thông báo trên điện thoại hoặc biểu tượng tray Windows. Agent dùng DPAPI, điện thoại dùng secure storage; không lưu mã vào danh sách PC.

@@ -4,12 +4,12 @@
 
 ## Cài và ghép nối
 
-1. Giải nén `WakeMyPcAgent.zip` vào thư mục cố định, ví dụ `%LOCALAPPDATA%\WakeMyPcAgent\app`.
+1. Tải [WakeMyPcAgent.exe từ GitHub Releases](https://github.com/Nakai981/wake-on-lan/releases/latest/download/WakeMyPcAgent.exe) vào thư mục cố định, ví dụ `%LOCALAPPDATA%\WakeMyPcAgent\app`. Bản phát hành chỉ cần một EXE, không cần giải nén hay DLL bên cạnh.
 2. Chạy `WakeMyPcAgent.exe`. Lưu đúng IP và MAC Ethernet hiển thị trong cửa sổ vào app điện thoại.
-3. Mở PowerShell **Run as administrator** tại thư mục đã giải nén, chạy `powershell -ExecutionPolicy Bypass -File .\Enable-Firewall.ps1`. Script chỉ mở TCP 47991 cho chương trình này, mạng Private và LocalSubnet. Không mở cổng router.
+3. Khi Windows Firewall hỏi, chỉ cho phép Agent trên mạng **Private** tin cậy. Nếu không có thông báo, mở Windows Security → Firewall & network protection → Allow an app through firewall → thêm EXE và chọn Private. Người build từ mã nguồn cũng có thể dùng `Enable-Firewall.ps1` để giới hạn TCP 47991 theo chương trình, mạng Private và LocalSubnet. Không mở cổng router.
 4. Trên điện thoại: menu PC → Ghép nối Windows Agent → nhập mã 32 ký tự từ Agent. Mã được lưu trong kho bảo mật của điện thoại.
 5. Trên Home, chọn Sleep hoặc Tắt máy và xác nhận trên điện thoại. Windows không yêu cầu xác nhận thêm: Agent chờ 10 giây rồi tự thực hiện. Thông báo ở khay hệ thống chỉ để báo trạng thái. Hủy từ điện thoại hoặc menu khay hệ thống nếu cần.
-6. Bấm đúp `Enable-Startup.cmd` để bật chạy cùng Windows và mở Agent chạy nền ngay. Không cần quyền administrator. Đóng cửa sổ Agent chỉ thu xuống tray; chọn Thoát Agent để dừng.
+6. Tích **Chạy nền khi đăng nhập Windows** nếu muốn tự khởi động. Không cần quyền administrator. Đóng cửa sổ Agent chỉ thu xuống tray; chọn Thoát Agent để dừng. Các script startup bên dưới dành cho bộ mã nguồn, không cần tải cùng EXE.
 
 ## Bật / tắt khởi động cùng Windows
 
@@ -37,7 +37,11 @@ Build lại Agent bằng Build.ps1 và chạy app mới để sử dụng. EXE/Z
 
 Trên Agent, bấm **Hiện QR ghép nối**, chọn card mạng có MAC giống PC đã lưu trên điện thoại. Trên app: menu PC → **Ghép nối Windows Agent** → **Quét QR từ Windows Agent**. Cấp quyền camera, quét mã rồi bấm **Ghép nối** để xác thực. App điền IP từ QR và chỉ cập nhật IP đã lưu sau khi ghép nối thành công. Nhập mã tay vẫn dùng được.
 
-QR được tạo tại máy bằng QRCoder, chứa IP, MAC và mã ghép nối; không chia sẻ ảnh QR. Cửa sổ QR tự đóng sau 2 phút, nhưng mã vẫn hợp lệ cho đến khi bấm **Đổi mã**. Không có dịch vụ QR bên ngoài. Khi phân phối Agent mới, giữ `QRCoder.dll` cạnh EXE (Build.ps1 tự sao chép cùng giấy phép).
+QR được tạo tại máy bằng QRCoder, chứa IP, MAC và mã ghép nối; không chia sẻ ảnh QR. Cửa sổ QR tự đóng sau 2 phút, nhưng mã vẫn hợp lệ cho đến khi bấm **Đổi mã**. Không có dịch vụ QR bên ngoài. `Build.ps1` nhúng QRCoder và giấy phép MIT vào EXE, nên bản phát hành chỉ tải một file.
+
+### Quyền riêng tư
+
+Agent không ghi màn hình, âm thanh, phím gõ hoặc lịch sử duyệt web; không có analytics, quảng cáo hoặc máy chủ thu thập dữ liệu. Agent nhận các lệnh đã xác thực từ thiết bị có mã ghép nối trong LAN Wi-Fi/Ethernet. Kiểm tra trạng thái phím bổ trợ chỉ để tránh can thiệp phím người dùng đang giữ khi thực hiện lệnh, không lưu lịch sử phím. Thông tin IP/MAC được dùng để kết nối và ghép nối; mã được lưu bằng DPAPI của Windows. Bạn có thể đổi mã, tắt tự khởi động và thoát Agent. Chỉ dùng trên LAN tin cậy, không chuyển tiếp cổng ra Internet. Tải bản phát hành từ GitHub cần Internet; điều khiển trong LAN không cần cloud. Wake qua Wi-Fi tùy phần cứng; ưu tiên Ethernet cho Wake-on-LAN.
 
 Thay đổi này cần build lại cả app điện thoại và Agent; hot reload không cài được plugin camera mới. Bản EXE/ZIP cũ chưa chứa tính năng QR.
 
