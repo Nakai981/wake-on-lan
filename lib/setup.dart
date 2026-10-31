@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 
+import 'agent_client.dart';
 import 'models.dart';
+import 'pairing_qr.dart';
+import 'pairing_scanner.dart';
 import 'services.dart';
-import 'design.dart';
-import 'screens.dart';
 
 class SetupPage extends StatefulWidget {
   final NetworkService net;
   final Pc? existing;
-  const SetupPage({super.key, required this.net, this.existing});
+  final AgentClient? agentClient;
+  const SetupPage({
+    super.key,
+    required this.net,
+    this.existing,
+    this.agentClient,
+  });
   @override
   State<SetupPage> createState() => _SetupPageState();
 }
@@ -18,25 +25,23 @@ class _SetupPageState extends State<SetupPage> {
   final name = TextEditingController(),
       mac = TextEditingController(),
       ip = TextEditingController(),
-      broadcast = TextEditingController();
-  final port = TextEditingController(text: '9'),
+      broadcast = TextEditingController(),
+      port = TextEditingController(text: '9'),
       retries = TextEditingController(text: '3'),
-      timeout = TextEditingController(text: '60');
-  int step = 0, done = 0, total = 0;
-  bool checking = false,
-      scanning = false,
-      cancelled = false,
-      scanned = false,
-      selecting = false;
+      timeout = TextEditingController(text: '60'),
+      startup = TextEditingController(text: '20');
+  int mode = 0, done = 0, total = 0, generation = 0, metadataGeneration = 0;
+  bool scanning = false, loading = false, saving = false;
   Lan? lan;
-  String? error;
-  final List<String> found = [];
+  String? error, info, autoName, autoMac;
+  PairingQr? qr;
+  final found = <String>[];
   @override
   void initState() {
     super.initState();
     final pc = widget.existing;
     if (pc != null) {
-      step = 3;
+      mode = 1;
       name.text = pc.name;
       mac.text = pc.mac;
       ip.text = pc.ip;
@@ -44,96 +49,158 @@ class _SetupPageState extends State<SetupPage> {
       port.text = '${pc.port}';
       retries.text = '${pc.retries}';
       timeout.text = '${pc.timeout}';
+      startup.text = '${pc.startupDelay}';
     }
     checkNetwork();
   }
 
   @override
   void dispose() {
-    cancelled = true;
-    for (final c in [name, mac, ip, broadcast, port, retries, timeout]) {
+    generation++;
+    metadataGeneration++;
+    for (final c in [
+      name,
+      mac,
+      ip,
+      broadcast,
+      port,
+      retries,
+      timeout,
+      startup,
+    ]) {
       c.dispose();
     }
     super.dispose();
   }
 
   Future<void> checkNetwork() async {
-    setState(() {
-      checking = true;
-      error = null;
-    });
     try {
-      final current = await widget.net.network();
-      if (mounted) setState(() => lan = current);
+      final value = await widget.net.network();
+      if (mounted) setState(() => lan = value);
     } catch (_) {
-      if (mounted) {
+      if (mounted)
         setState(
-          () => error =
-              'Chưa đọc được thông tin mạng. Kiểm tra Wi-Fi rồi thử lại.',
+          () => error = 'Chưa đọc được Wi-Fi. Bạn vẫn có thể nhập thủ công.',
         );
-      }
-    } finally {
-      if (mounted) setState(() => checking = false);
     }
   }
 
+  void stopScan() {
+    generation++;
+    setState(() => scanning = false);
+  }
+
   Future<void> scan() async {
-    await checkNetwork();
-    if (!mounted || lan == null) return;
+    final run = ++generation;
     setState(() {
       scanning = true;
-      cancelled = false;
-      scanned = false;
-      done = 0;
-      total = lan!.hosts.length;
+      error = null;
       found.clear();
+      done = 0;
+      total = 0;
     });
+    await checkNetwork();
+    if (!mounted || run != generation) return;
+    if (lan == null) {
+      setState(() {
+        scanning = false;
+        error = 'Kết nối Wi-Fi cùng LAN với PC.';
+      });
+      return;
+    }
     try {
       await widget.net.scan(
         lan!,
-        cancelled: () => cancelled || !mounted,
+        cancelled: () => !mounted || run != generation,
         progress: (n, count, address) {
-          if (mounted) {
-            setState(() {
-              done = n;
-              total = count;
-              if (address != null) found.add(address);
-            });
-          }
+          if (!mounted || run != generation) return;
+          setState(() {
+            done = n;
+            total = count;
+            if (address != null && !found.contains(address)) found.add(address);
+          });
         },
       );
     } catch (_) {
-      if (mounted) {
+      if (mounted && run == generation)
         setState(
-          () => error = 'Chưa quét được mạng. Cho phép truy cập Mạng cục bộ hoặc nhập máy thủ công.',
+          () => error =
+              'Quét thất bại. Kiểm tra quyền Mạng cục bộ hoặc nhập thủ công.',
         );
-      }
     } finally {
-      if (mounted) {
-        setState(() {
-          scanning = false;
-          scanned = true;
-        });
-      }
+      if (mounted && run == generation) setState(() => scanning = false);
+    }
+  }
+
+  Future<void> metadata(String address, {bool keepMac = false}) async {
+    final run = ++metadataGeneration;
+    try {
+      ipv4Number(address);
+    } catch (_) {
+      return;
+    }
+    setState(() {
+      loading = true;
+      info = 'Đang lấy tên máy và MAC…';
+    });
+    try {
+      final values = await Future.wait([
+        widget.net.nameFor(address),
+        keepMac ? Future<String?>.value(null) : widget.net.macFor(address),
+      ]);
+      if (!mounted || run != metadataGeneration || ip.text != address) return;
+      setState(() {
+        if (values[0] != null && (name.text.isEmpty || name.text == autoName)) {
+          name.text = values[0]!;
+          autoName = values[0];
+        }
+        if (values[1] != null && (mac.text.isEmpty || mac.text == autoMac)) {
+          mac.text = values[1]!;
+          autoMac = values[1];
+        }
+        info = keepMac
+            ? 'Đã điền IP và MAC từ QR. Bấm Hoàn tất để xác thực và lưu.'
+            : values[1] == null
+            ? 'Không đọc được MAC. Nhập MAC Ethernet hoặc dùng QR Windows Agent.'
+            : 'Đã lấy MAC. Kiểm tra đúng card Ethernet dùng để Wake.';
+      });
+    } catch (_) {
+      if (mounted && run == metadataGeneration)
+        setState(
+          () => info = 'Chưa lấy được tên/MAC. Bạn có thể nhập thủ công.',
+        );
+    } finally {
+      if (mounted && run == metadataGeneration) setState(() => loading = false);
     }
   }
 
   Future<void> select(String address) async {
-    setState(() => selecting = true);
-    final detected = await widget.net.macFor(address);
-    if (!mounted) return;
     setState(() {
+      if (name.text == autoName) name.clear();
+      if (mac.text == autoMac) mac.clear();
       ip.text = address;
-      if (detected != null) mac.text = detected;
-      selecting = false;
-      step = 3;
+      qr = null;
     });
-    if (detected == null) {
-      message(
-        context,
-        'Chưa đọc được MAC. Bạn chỉ cần nhập thông tin này một lần.',
-      );
-    }
+    await metadata(address);
+  }
+
+  Future<void> scanQr() async {
+    final value = await Navigator.push<PairingQr>(
+      context,
+      MaterialPageRoute(builder: (_) => const PairingScannerPage()),
+    );
+    if (!mounted || value == null) return;
+    setState(() {
+      qr = value;
+      ip.text = value.ip;
+      mac.text = value.mac;
+      error = null;
+      if (name.text.isEmpty || name.text == autoName) {
+        name.text = 'PC ${value.ip}';
+        autoName = name.text;
+      }
+    });
+    await metadata(value.ip, keepMac: true);
   }
 
   String? validIp(String? value) {
@@ -142,40 +209,34 @@ class _SetupPageState extends State<SetupPage> {
       ipv4Number(value.trim());
       return null;
     } catch (_) {
-      return 'Nhập địa chỉ IPv4 hợp lệ.';
+      return 'Nhập IPv4 hợp lệ.';
     }
   }
 
-  String? validNumber(String? value, int min, int max) {
-    final n = int.tryParse(value ?? '');
-    return n == null || n < min || n > max ? 'Nhập số từ $min đến $max.' : null;
+  bool number(TextEditingController c, int min, int max) {
+    final n = int.tryParse(c.text);
+    return n != null && n >= min && n <= max;
   }
 
-  void next() {
-    if (step == 3) {
-      final advancedValid =
-          validIp(broadcast.text) == null &&
-          validNumber(port.text, 1, 65535) == null &&
-          validNumber(retries.text, 1, 10) == null &&
-          validNumber(timeout.text, 5, 120) == null;
-      if (!advancedValid) {
-        setState(
-          () => error = 'Mở Cài đặt nâng cao và kiểm tra broadcast, cổng, số lần gửi hoặc thời gian chờ.',
-        );
-        form.currentState!.validate();
-        return;
-      }
-      if (!form.currentState!.validate()) return;
+  Future<void> save() async {
+    if (saving || loading || !form.currentState!.validate()) return;
+    if (!(validIp(broadcast.text) == null &&
+        number(port, 1, 65535) &&
+        number(retries, 1, 10) &&
+        number(timeout, 5, 300) &&
+        number(startup, 10, 30))) {
+      setState(
+        () => error = 'Kiểm tra cấu hình nâng cao: cổng, số lần gửi, broadcast và thời gian chờ.',
+      );
+      return;
     }
-    error = null;
-    setState(() => step++);
-  }
-
-  void save() {
-    final old = widget.existing;
-    Navigator.pop(
-      context,
-      Pc(
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    try {
+      final old = widget.existing;
+      var pc = Pc(
         id: old?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         name: name.text.trim(),
         mac: normalizeMac(mac.text),
@@ -185,393 +246,265 @@ class _SetupPageState extends State<SetupPage> {
         port: int.parse(port.text),
         retries: int.parse(retries.text),
         timeout: int.parse(timeout.text),
+        startupDelay: int.parse(startup.text),
         favorite: old?.favorite ?? false,
         agentPaired: old?.agentPaired ?? false,
         lastWake: old?.lastWake,
-      ),
-    );
+      );
+      if (qr != null) {
+        if (pc.mac != qr!.mac || pc.ip != qr!.ip)
+          throw const FormatException(
+            'Thông tin đã thay đổi. Hãy quét lại QR.',
+          );
+        await (widget.agentClient ?? const AgentClient()).pair(pc, qr!.key);
+        pc = pc.copy(agentPaired: true);
+      }
+      if (mounted) Navigator.pop(context, pc);
+    } catch (e) {
+      if (mounted)
+        setState(
+          () => error = e is FormatException ? e.message : 'Không xác thực được Agent. Kiểm tra IP, mã và firewall TCP 47991.',
+        );
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(
-        widget.existing == null ? 'Thêm máy tính' : 'Chi tiết máy tính',
-      ),
+  Widget field(
+    String label,
+    TextEditingController c, {
+    String? hint,
+    String? Function(String?)? validate,
+    bool numeric = false,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: TextFormField(
+      controller: c,
+      enabled: !saving,
+      keyboardType: numeric ? TextInputType.number : TextInputType.text,
+      decoration: InputDecoration(labelText: label, hintText: hint),
+      validator: validate,
+      onChanged: c == ip || c == mac
+          ? (_) {
+              metadataGeneration++;
+              setState(() {
+                loading = false;
+                qr = null;
+                info = null;
+              });
+            }
+          : null,
+      onFieldSubmitted: c == ip ? (_) => metadata(ip.text.trim()) : null,
     ),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: 650),
-          child: Column(
-            children: [
-              Padding(
-                padding: EdgeInsets.fromLTRB(24, 12, 24, 0),
-                child: SetupStepper(step: step),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: EdgeInsets.symmetric(horizontal: 24),
-                  children: [
+  );
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !saving,
+    child: Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.existing == null ? 'Thêm máy tính' : 'Chỉnh sửa máy tính',
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 650),
+            child: Form(
+              key: form,
+              child: ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  SegmentedButton<int>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(
+                        value: 0,
+                        label: Text('Quét LAN'),
+                        icon: Icon(Icons.radar),
+                      ),
+                      ButtonSegment(
+                        value: 1,
+                        label: Text('Nhập tay'),
+                        icon: Icon(Icons.edit_outlined),
+                      ),
+                      ButtonSegment(
+                        value: 2,
+                        label: Text('QR Agent'),
+                        icon: Icon(Icons.qr_code_scanner),
+                      ),
+                    ],
+                    selected: {mode},
+                    onSelectionChanged: saving
+                        ? null
+                        : (value) {
+                            stopScan();
+                            setState(() {
+                              mode = value.first;
+                              error = null;
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 20),
+                  if (mode == 0) ...[
                     Text(
-                      [
-                        'Kết nối trước nhé',
-                        'Chuẩn bị máy tính',
-                        'Tìm PC của bạn',
-                        'Làm quen với PC',
-                        'Sẵn sàng đánh thức',
-                      ][step],
-                      style: Theme.of(context).textTheme.headlineMedium,
+                      lan == null
+                          ? 'Kết nối Wi-Fi cùng LAN với PC.'
+                          : 'Wi-Fi: ${lan!.ip} · ${lan!.mask}',
                     ),
-                    SizedBox(height: 14),
-                    if (step == 0) ...[
-                      Text(
-                        'Kết nối điện thoại với Wi-Fi cùng mạng với PC. Nên cắm dây LAN cho máy tính.',
-                        style: TextStyle(
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: saving
+                          ? null
+                          : scanning
+                          ? stopScan
+                          : scan,
+                      icon: Icon(scanning ? Icons.stop : Icons.radar),
+                      label: Text(
+                        scanning
+                            ? 'Dừng quét'
+                            : total > 0
+                            ? 'Quét lại'
+                            : 'Quét LAN',
                       ),
-                      SizedBox(height: 24),
-                      Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              Icon(
-                                lan != null
-                                    ? Icons.wifi_rounded
-                                    : Icons.wifi_off_rounded,
-                                size: 48,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              SizedBox(height: 16),
-                              Text(
-                                checking
-                                    ? 'Đang kiểm tra…'
-                                    : lan != null
-                                    ? 'Đã kết nối Wi-Fi'
-                                    : 'Chưa nhận được mạng Wi-Fi',
-                                style: TextStyle(fontWeight: FontWeight.w700),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                lan == null
-                                    ? 'Bật Wi-Fi rồi kiểm tra lại.'
-                                    : 'Mạng: ${ipv4String(lan!.network)}',
-                                style: TextStyle(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: checking ? null : checkNetwork,
-                                child: Text('Kiểm tra lại'),
-                              ),
-                            ],
-                          ),
-                        ),
+                    ),
+                    if (scanning || total > 0) ...[
+                      const SizedBox(height: 10),
+                      LinearProgressIndicator(
+                        value: total == 0 ? null : done / total,
                       ),
-                      SizedBox(height: 24),
                       Text(
-                        'Wake My PC cần truy cập mạng cục bộ để tìm và bật máy. Khi hệ thống hỏi, hãy chọn Cho phép. Thông tin máy chỉ được lưu trên điện thoại.',
-                        style: TextStyle(
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                        '$done/$total địa chỉ · ${found.length} thiết bị phản hồi',
                       ),
                     ],
-                    if (step == 1) ...[
-                      Text(
-                        'Chỉ cần thực hiện một lần trên PC. Giữ máy đang bật trong lúc tìm thiết bị.',
-                        style: TextStyle(
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      HelpContent(embedded: true),
-                    ],
-                    if (step == 2) ...[
-                      Text(
-                        'Giữ PC đang bật và cùng mạng. Chọn địa chỉ của máy trong kết quả, hoặc thêm thủ công nếu không tìm thấy.',
-                        style: TextStyle(
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: scanning || selecting ? null : scan,
-                        icon: Icon(Icons.radar_rounded),
-                        label: Text(
-                          scanning ? 'Đang tìm thiết bị…' : 'Quét mạng',
-                        ),
-                      ),
-                      if (scanning) ...[
-                        SizedBox(height: 20),
-                        LinearProgressIndicator(
-                          value: total == 0 ? null : done / total,
-                        ),
-                        SizedBox(height: 8),
-                        Text('Đã kiểm tra $done / $total'),
-                        TextButton(
-                          onPressed: () => setState(() => cancelled = true),
-                          child: Text('Dừng quét'),
-                        ),
-                      ],
-                      if (scanned && found.isEmpty)
-                        Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Text(
-                            'Chưa tìm thấy thiết bị phản hồi. PC có thể chặn kiểm tra kết nối; bạn vẫn có thể thêm bằng MAC.',
-                          ),
-                        ),
-                      ...found.map(
-                        (address) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            Icons.computer_rounded,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          title: Text('Thiết bị trong mạng'),
-                          subtitle: Text(address),
-                          trailing: Icon(Icons.chevron_right),
-                          onTap: scanning || selecting
-                              ? null
-                              : () => select(address),
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Quét tối đa 254 địa chỉ gần điện thoại. Kết quả có thể bao gồm router và thiết bị khác; đối chiếu IPv4 trong ipconfig /all trên PC.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          height: 1.6,
-                        ),
-                      ),
-                    ],
-                    if (step == 3)
-                      Form(
-                        key: form,
-                        child: Column(
-                          children: [
-                            Text(
-                              'Đặt một tên dễ nhớ. MAC là địa chỉ card mạng của PC, chỉ cần nhập một lần.',
-                              style: TextStyle(
-                                height: 1.7,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                            ),
-                            SizedBox(height: 24),
-                            TextFormField(
-                              controller: name,
-                              textCapitalization: TextCapitalization.sentences,
-                              maxLength: 40,
-                              decoration: InputDecoration(
-                                labelText: 'Tên máy tính',
-                                hintText: 'Ví dụ: PC Gaming',
-                              ),
-                              validator: (v) => v == null || v.trim().isEmpty
-                                  ? 'Hãy đặt tên cho máy tính.'
-                                  : null,
-                            ),
-                            SizedBox(height: 14),
-                            TextFormField(
-                              controller: mac,
-                              autocorrect: false,
-                              decoration: InputDecoration(
-                                labelText: 'Địa chỉ MAC',
-                                hintText: 'A4:BB:6D:12:34:56',
-                              ),
-                              validator: (v) {
-                                try {
-                                  normalizeMac(v ?? '');
-                                  return null;
-                                } on FormatException catch (e) {
-                                  return e.message;
-                                }
-                              },
-                            ),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: TextButton.icon(
-                                onPressed: () => showModalBottomSheet(
-                                  context: context,
-                                  isScrollControlled: true,
-                                  builder: (_) => SafeArea(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(24),
-                                      child: Text(
-                                        'Trên PC Windows, mở Command Prompt → nhập ipconfig /all.\n\nTrong card Ethernet đang cắm dây, sao chép Physical Address vào ô MAC. IPv4 Address là địa chỉ IP.\n\nVí dụ: A4-BB-6D-12-34-56',
-                                        style: TextStyle(height: 1.8),
-                                      ),
-                                    ),
+                    if (found.isNotEmpty)
+                      SizedBox(
+                        height: 180,
+                        child: ListView(
+                          children: found
+                              .map(
+                                (address) => Card(
+                                  child: ListTile(
+                                    leading: const Icon(Icons.computer),
+                                    title: Text(address),
+                                    selected: ip.text == address,
+                                    trailing: ip.text == address
+                                        ? const Icon(Icons.check_circle)
+                                        : null,
+                                    onTap: saving
+                                        ? null
+                                        : () => select(address),
                                   ),
                                 ),
-                                icon: Icon(Icons.help_outline, size: 18),
-                                label: Text('Cách tìm MAC'),
-                              ),
-                            ),
-                            TextFormField(
-                              controller: ip,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                labelText: 'Địa chỉ IP (không bắt buộc)',
-                                helperText:
-                                    'Giúp kiểm tra PC đã hoạt động hay chưa.',
-                              ),
-                              validator: validIp,
-                            ),
-                            TextButton.icon(
-                              onPressed: () => setState(() => step = 2),
-                              icon: Icon(Icons.radar),
-                              label: Text('Tìm / quét lại máy tính'),
-                            ),
-                            ExpansionTile(
-                              maintainState: true,
-                              tilePadding: EdgeInsets.zero,
-                              title: Text('Cài đặt nâng cao'),
-                              children: [
-                                TextFormField(
-                                  controller: broadcast,
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    labelText: 'Broadcast',
-                                    hintText:
-                                        lan?.broadcast ??
-                                        'Tự động theo mạng Wi-Fi',
-                                    helperText:
-                                        'Để trống để tự động nhận diện.',
-                                  ),
-                                  validator: validIp,
-                                ),
-                                SizedBox(height: 16),
-                                TextFormField(
-                                  controller: port,
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    labelText: 'Cổng UDP',
-                                  ),
-                                  validator: (v) => validNumber(v, 1, 65535),
-                                ),
-                                SizedBox(height: 16),
-                                TextFormField(
-                                  controller: retries,
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    labelText: 'Số lần gửi tín hiệu',
-                                  ),
-                                  validator: (v) => validNumber(v, 1, 10),
-                                ),
-                                SizedBox(height: 16),
-                                Text(
-                                  'App tự kiểm tra PC sau khoảng 10 giây kể từ khi gửi tín hiệu.',
-                                  style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                SizedBox(height: 16),
-                              ],
-                            ),
-                          ],
+                              )
+                              .toList(),
                         ),
                       ),
-                    if (step == 4) ...[
-                      SizedBox(height: 12),
-                      Icon(
-                        Icons.task_alt_rounded,
-                        size: 84,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      SizedBox(height: 24),
-                      Text(
-                        name.text,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      Text(
-                        'Lưu máy rồi cho PC chuyển sang Sleep. Từ màn hình chính, nhấn BẬT PC để kiểm tra Wake-on-LAN.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      Text(
-                        'App sẽ gửi tín hiệu và theo dõi phản hồi nếu bạn đã nhập IP. PC cần được cấu hình Wake-on-LAN và vẫn cắm nguồn.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (error != null)
-                      Padding(
-                        padding: EdgeInsets.only(top: 16),
-                        child: Text(
-                          error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      ),
-                    SizedBox(height: 24),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.all(24),
-                child: Row(
-                  children: [
-                    if (step > 0) ...[
-                      IconButton(
-                        tooltip: 'Bước trước',
-                        onPressed: scanning || selecting
-                            ? null
-                            : () => setState(() => step--),
-                        icon: Icon(Icons.arrow_back),
-                      ),
-                      SizedBox(width: 12),
-                    ],
-                    Expanded(
-                      child: FilledButton(
-                        onPressed:
-                            scanning ||
-                                selecting ||
-                                (step == 0 && (checking || lan == null))
-                            ? null
-                            : step == 4
-                            ? save
-                            : next,
-                        child: Text(
-                          [
-                            'Tiếp tục',
-                            'Tôi đã chuẩn bị xong',
-                            'Nhập máy thủ công',
-                            'Tiếp tục',
-                            'Lưu máy tính',
-                          ][step],
-                        ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'Chọn IP để thử lấy tên và MAC. Kết quả có thể gồm router/điện thoại.',
                       ),
                     ),
                   ],
-                ),
+                  if (mode == 2) ...[
+                    const Text(
+                      'Trên Windows Agent: Hiện QR ghép nối → chọn card Ethernet.',
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: saving ? null : scanQr,
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Quét QR Windows Agent'),
+                    ),
+                    if (qr != null)
+                      const Text(
+                        'Đã đọc QR. Hoàn tất sẽ xác thực Agent trước khi lưu.',
+                      ),
+                    const SizedBox(height: 16),
+                  ],
+                  field(
+                    'Tên máy tính',
+                    name,
+                    hint: 'PC của tôi',
+                    validate: (v) => v == null || v.trim().isEmpty
+                        ? 'Nhập tên máy tính.'
+                        : null,
+                  ),
+                  field(
+                    'Địa chỉ IP',
+                    ip,
+                    hint: '192.168.0.100',
+                    validate: validIp,
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: loading || saving || ip.text.isEmpty
+                        ? null
+                        : () => metadata(ip.text.trim(), keepMac: qr != null),
+                    icon: const Icon(Icons.refresh),
+                    label: Text(
+                      loading ? 'Đang lấy thông tin…' : 'Tự lấy tên & MAC',
+                    ),
+                  ),
+                  if (info != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(info!),
+                    ),
+                  field(
+                    'MAC Ethernet',
+                    mac,
+                    hint: 'A4:BB:6D:12:34:56',
+                    validate: (v) {
+                      try {
+                        normalizeMac(v ?? '');
+                        return null;
+                      } on FormatException catch (e) {
+                        return e.message;
+                      }
+                    },
+                  ),
+                  const Text(
+                    'Nếu IP dùng Wi-Fi, hãy kiểm tra MAC Ethernet dùng để Wake. Trên PC: ipconfig /all → Physical Address.',
+                  ),
+                  ExpansionTile(
+                    title: const Text('Cấu hình nâng cao'),
+                    children: [
+                      field(
+                        'Broadcast',
+                        broadcast,
+                        hint: lan?.broadcast,
+                        validate: validIp,
+                      ),
+                      field('Cổng UDP', port, numeric: true),
+                      field('Số lần gửi (1–10)', retries, numeric: true),
+                      field(
+                        'Chờ khởi động (10–30 giây)',
+                        startup,
+                        numeric: true,
+                      ),
+                      field(
+                        'Theo dõi phản hồi (5–300 giây)',
+                        timeout,
+                        numeric: true,
+                      ),
+                    ],
+                  ),
+                  if (error != null)
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  const SizedBox(height: 20),
+                  FilledButton(
+                    onPressed: saving || loading ? null : save,
+                    child: Text(saving ? 'Đang xác thực…' : 'Hoàn tất'),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

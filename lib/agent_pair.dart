@@ -8,14 +8,23 @@ import 'pairing_scanner.dart';
 
 class AgentPairPage extends StatefulWidget {
   final Pc pc;
-  const AgentPairPage({super.key, required this.pc});
+  final AgentClient? agentClient;
+  const AgentPairPage({super.key, required this.pc, this.agentClient});
   @override
   State<AgentPairPage> createState() => _AgentPairPageState();
 }
 
 class _AgentPairPageState extends State<AgentPairPage> {
   final code = TextEditingController();
-  final client = AgentClient();
+  AgentClient get client => widget.agentClient ?? const AgentClient();
+  final ip = TextEditingController();
+  int mode = 0;
+  @override
+  void initState() {
+    super.initState();
+    ip.text = widget.pc.ip;
+  }
+
   bool busy = false;
   String? error;
   String? scannedIp;
@@ -33,6 +42,7 @@ class _AgentPairPageState extends State<AgentPairPage> {
     }
     setState(() {
       scannedIp = qr.ip;
+      ip.text = qr.ip;
       code.text = qr.key;
       error = null;
     });
@@ -41,6 +51,7 @@ class _AgentPairPageState extends State<AgentPairPage> {
   @override
   void dispose() {
     code.dispose();
+    ip.dispose();
     super.dispose();
   }
 
@@ -50,7 +61,10 @@ class _AgentPairPageState extends State<AgentPairPage> {
       error = null;
     });
     try {
-      final pc = widget.pc.copy(ip: scannedIp, agentPaired: true);
+      final pc = widget.pc.copy(
+        ip: mode == 0 ? scannedIp : ip.text.trim(),
+        agentPaired: true,
+      );
       await client.pair(pc, code.text);
       if (mounted) Navigator.pop(context, pc);
     } catch (e) {
@@ -82,26 +96,58 @@ class _AgentPairPageState extends State<AgentPairPage> {
           ),
         ),
         SizedBox(height: 20),
-        OutlinedButton.icon(
-          onPressed: busy ? null : scan,
-          icon: const Icon(Icons.qr_code_scanner_rounded),
-          label: const Text('Quét QR từ Windows Agent'),
+        SegmentedButton<int>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(
+              value: 0,
+              label: Text('Quét QR Agent'),
+              icon: Icon(Icons.qr_code_scanner),
+            ),
+            ButtonSegment(
+              value: 1,
+              label: Text('Nhập mã'),
+              icon: Icon(Icons.keyboard),
+            ),
+          ],
+          selected: {mode},
+          onSelectionChanged: busy
+              ? null
+              : (value) => setState(() {
+                  mode = value.first;
+                  error = null;
+                }),
         ),
+        const SizedBox(height: 12),
+        if (mode == 0)
+          OutlinedButton.icon(
+            onPressed: busy ? null : scan,
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            label: const Text('Quét QR từ Windows Agent'),
+          ),
         const SizedBox(height: 12),
         Text(
           'IP máy tính: ${scannedIp ?? (widget.pc.ip.isEmpty ? 'Chưa có — quét QR để điền IP' : widget.pc.ip)}',
         ),
         SizedBox(height: 16),
-        TextField(
-          controller: code,
-          obscureText: true,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: InputDecoration(
-            labelText: 'Mã ghép nối',
-            helperText: '32 ký tự hiển thị trong Windows Agent',
+        if (mode == 1)
+          TextField(
+            controller: ip,
+            enabled: !busy,
+            decoration: const InputDecoration(labelText: 'Địa chỉ IP của PC'),
           ),
-        ),
+        if (mode == 1) const SizedBox(height: 16),
+        if (mode == 1)
+          TextField(
+            controller: code,
+            obscureText: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              labelText: 'Mã ghép nối',
+              helperText: '32 ký tự hiển thị trong Windows Agent',
+            ),
+          ),
         SizedBox(height: 20),
         if (error != null)
           Padding(
@@ -112,7 +158,10 @@ class _AgentPairPageState extends State<AgentPairPage> {
             ),
           ),
         FilledButton(
-          onPressed: busy || (scannedIp ?? widget.pc.ip).isEmpty ? null : pair,
+          onPressed:
+              busy || (mode == 0 ? scannedIp == null : ip.text.trim().isEmpty)
+              ? null
+              : pair,
           child: Text(busy ? 'Đang xác thực…' : 'Ghép nối'),
         ),
       ],

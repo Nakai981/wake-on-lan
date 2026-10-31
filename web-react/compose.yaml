@@ -1,0 +1,28 @@
+services:
+  wake-my-pc:
+    image: ${IMAGE:-wake-my-pc-web:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    # Linux host networking is required for real LAN interfaces, ARP and UDP broadcast.
+    # Do not add ports: mappings when using network_mode: host.
+    network_mode: host
+    environment:
+      NODE_ENV: production
+      HOST: ${HOST:-127.0.0.1}
+      PORT: ${PORT:-8787}
+      LAN_IP: ${LAN_IP:-}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8787}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

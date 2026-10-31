@@ -54,7 +54,7 @@ class NetworkService {
     if (ip.isEmpty) return false;
     ipv4Number(ip);
     final results = await Future.wait(
-      [445, 3389, 22, 80].map((port) async {
+      [47991, 445, 3389, 22, 80].map((port) async {
         Socket? socket;
         try {
           socket = await Socket.connect(
@@ -84,6 +84,40 @@ class NetworkService {
     }
   }
 
+  Future<String?> nameFor(String ip) async {
+    try {
+      ipv4Number(ip);
+      final result = await InternetAddress(ip)
+          .reverse()
+          .timeout(const Duration(seconds: 2));
+      return result.host == ip ? null : result.host;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> discover(String ip) async {
+    if (await reachable(ip)) return true;
+    final replies = await Future.wait(
+      [47991, 445, 3389, 22, 80].map((port) async {
+        Socket? socket;
+        try {
+          socket = await Socket.connect(
+            ip,
+            port,
+            timeout: const Duration(milliseconds: 450),
+          );
+          return true;
+        } on SocketException catch (e) {
+          return [61, 111, 10061].contains(e.osError?.errorCode);
+        } finally {
+          socket?.destroy();
+        }
+      }),
+    );
+    return replies.any((reply) => reply);
+  }
+
   Future<void> scan(
     Lan lan, {
     required bool Function() cancelled,
@@ -95,7 +129,7 @@ class NetworkService {
       List.generate(12, (_) async {
         while (!cancelled() && next < hosts.length) {
           final ip = hosts[next++];
-          final found = await reachable(ip);
+          final found = await discover(ip);
           done++;
           if (!cancelled()) progress(done, hosts.length, found ? ip : null);
         }
@@ -107,14 +141,22 @@ class NetworkService {
     final target = pc.broadcast.isEmpty ? lan.broadcast : pc.broadcast;
     ipv4Number(target);
     final packet = magicPacket(pc.mac);
+    final trace = Zone.current[#wakeTrace] as void Function(String)?;
+    trace?.call('UDP → $target:${pc.port} · MAC ${pc.mac}');
+    trace?.call(
+      'Magic Packet ${packet.length} byte: ${packet.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ').toUpperCase()}',
+    );
     final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
     try {
       socket.broadcastEnabled = true;
       for (var i = 0; i < pc.retries; i++) {
-        if (socket.send(packet, InternetAddress(target), pc.port) !=
-            packet.length) {
+        final sent = socket.send(packet, InternetAddress(target), pc.port);
+        if (sent != packet.length) {
           throw const SocketException('Không gửi được tín hiệu.');
         }
+        trace?.call(
+          'Lần ${i + 1}/${pc.retries}: socket đã gửi $sent byte → $target:${pc.port}',
+        );
         if (i + 1 < pc.retries) {
           await Future<void>.delayed(const Duration(milliseconds: 250));
         }
@@ -123,4 +165,7 @@ class NetworkService {
       socket.close();
     }
   }
+
+  Future<void> wakeWithLog(Pc pc, Lan lan, void Function(String) log) =>
+      runZoned(() => wake(pc, lan), zoneValues: {#wakeTrace: log});
 }

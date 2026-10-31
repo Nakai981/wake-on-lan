@@ -12,6 +12,7 @@ import 'agent_pair.dart';
 import 'remote_control.dart';
 import 'app_theme.dart';
 import 'power_confirmation_effect.dart';
+import 'wake_console.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -40,6 +41,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Set<String> manuallyOffline = {};
   int confirmationEffect = 0;
   Timer? statusTimer;
+  final Map<String, WakeSession> wakeSessions = {};
+  final Map<String, Timer> powerTimers = {};
+  final Set<String> cancelledPower = {};
 
   Future<bool> pcReachable(Pc pc) async {
     if (!pc.agentPaired) return widget.net.reachable(pc.ip);
@@ -53,7 +57,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> pairAgent(Pc pc) async {
     final paired = await Navigator.push<Pc>(
       context,
-      MaterialPageRoute(builder: (_) => AgentPairPage(pc: pc)),
+      MaterialPageRoute(
+        builder: (_) => AgentPairPage(pc: pc, agentClient: agent),
+      ),
     );
     if (!mounted || paired == null) return;
     try {
@@ -78,6 +84,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> power(Pc pc, String command) async {
     if (powerBusy.contains(pc.id) || waking.contains(pc.id)) return;
+    final authenticated = await Navigator.push<Pc>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AgentPairPage(pc: pc, agentClient: agent),
+      ),
+    );
+    if (!mounted || authenticated == null) return;
+    pc = authenticated;
+    await persist(pcs.map((p) => p.id == pc.id ? pc : p).toList());
+    if (!mounted) return;
     final label = command == 'sleep' ? 'Sleep' : 'Tắt máy';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -115,8 +131,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return;
       }
       setState(() {
-        manuallyOnline.remove(pc.id);
-        statuses[pc.id] = 'Đã gửi lệnh $label';
+        cancelledPower.remove(pc.id);
+        statuses[pc.id] = 'Đã gửi $label · chờ kiểm tra sau 20 giây';
       });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -133,6 +149,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         await widget.store.log('Đã gửi lệnh $label · ${pc.name}');
       } catch (_) {}
+      powerTimers[pc.id]?.cancel();
+      powerTimers[pc.id] = Timer(const Duration(seconds: 20), () async {
+        final online = await pcReachable(pc);
+        if (!mounted || cancelledPower.contains(pc.id)) return;
+        setState(() {
+          powerBusy.remove(pc.id);
+          manuallyOnline.remove(pc.id);
+          manuallyOffline.remove(pc.id);
+          if (online) {
+            onlineIds.add(pc.id);
+          } else {
+            onlineIds.remove(pc.id);
+          }
+          statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác định';
+        });
+        powerTimers.remove(pc.id);
+        message(
+          context,
+          online ? 'PC vẫn phản hồi sau 20 giây.' : 'PC chưa phản hồi sau 20 giây; chưa xác nhận chắc chắn đã Sleep/tắt.',
+        );
+      });
     } catch (_) {
       if (mounted) {
         message(
@@ -141,13 +178,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       }
     } finally {
-      if (mounted) setState(() => powerBusy.remove(pc.id));
+      if (mounted && !powerTimers.containsKey(pc.id))
+        setState(() => powerBusy.remove(pc.id));
     }
   }
 
   Future<void> cancelPower(Pc pc) async {
     try {
       final result = await agent.command(pc, 'cancel');
+      if (result == 'cancelled') {
+        cancelledPower.add(pc.id);
+        powerTimers.remove(pc.id)?.cancel();
+        if (mounted) setState(() => powerBusy.remove(pc.id));
+      }
       if (mounted) {
         message(
           context,
@@ -178,6 +221,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     try {
       pcs = widget.store.read();
+      manuallyOffline.addAll(pcs.map((p) => p.id));
     } catch (_) {
       storageError = true;
     }
@@ -192,6 +236,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     statusTimer?.cancel();
+    for (final timer in powerTimers.values) {
+      timer.cancel();
+    }
+    for (final session in wakeSessions.values) {
+      session.stopped = true;
+    }
     for (final timer in wakeTimers.values) {
       timer.cancel();
     }
@@ -213,7 +263,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() => lan = current);
       for (final pc in List<Pc>.of(pcs)) {
         if (!mounted) return;
-        if (waking.contains(pc.id) || manuallyOffline.contains(pc.id)) continue;
+        if (waking.contains(pc.id) ||
+            powerBusy.contains(pc.id) ||
+            manuallyOffline.contains(pc.id) ||
+            manuallyOnline.contains(pc.id))
+          continue;
         setState(() => statuses[pc.id] = 'Đang kiểm tra…');
         final online =
             current != null &&
@@ -222,7 +276,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await pcReachable(pc);
         if (!mounted) return;
         setState(() {
-          if (!waking.contains(pc.id) && !manuallyOffline.contains(pc.id)) {
+          if (!waking.contains(pc.id) &&
+              !powerBusy.contains(pc.id) &&
+              !manuallyOffline.contains(pc.id) &&
+              !manuallyOnline.contains(pc.id)) {
             statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác định';
             if (online) {
               manuallyOnline.remove(pc.id);
@@ -256,7 +313,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> edit([Pc? pc]) async {
     final result = await Navigator.of(context).push<Pc>(
       MaterialPageRoute(
-        builder: (_) => SetupPage(net: widget.net, existing: pc),
+        builder: (_) =>
+            SetupPage(net: widget.net, existing: pc, agentClient: agent),
       ),
     );
     if (result == null || !mounted) return;
@@ -266,6 +324,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       await persist([...pcs.where((p) => p.id != result.id), result]);
+      if (pc == null) manuallyOffline.add(result.id);
       if (!mounted) return;
       message(context, 'Đã lưu ${result.name}. Bạn có thể thử bật máy.');
       refresh();
@@ -285,145 +344,168 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
+  void stopWake(Pc pc) {
+    wakeTimers.remove(pc.id)?.cancel();
+    final session = wakeSessions[pc.id];
+    if (session != null) session.stopped = true;
+    if (mounted) setState(() => waking.remove(pc.id));
+  }
+
+  void manualWake(Pc pc) {
+    stopWake(pc);
+    wakeSessions[pc.id]?.online = true;
+    setState(() {
+      manuallyOffline.remove(pc.id);
+      manuallyOnline.add(pc.id);
+      onlineIds.add(pc.id);
+      statuses[pc.id] = 'Đã bật · bạn đã xác nhận';
+      confirmationEffect++;
+    });
+    wakeSessions[pc.id]?.update('Đã bật · xác nhận thủ công');
+    wakeSessions[pc.id]?.log(
+      'Người dùng xác nhận PC đã bật. Không gửi thêm gói UDP.',
+    );
+  }
+
+  void wakeNotStarted(Pc pc, {bool closeConsole = false}) {
+    stopWake(pc);
+    if (closeConsole) Navigator.pop(context);
+    setState(() {
+      manuallyOnline.remove(pc.id);
+      manuallyOffline.add(pc.id);
+      onlineIds.remove(pc.id);
+      statuses[pc.id] = 'Chưa bật · xác nhận thủ công';
+      wakeHelp =
+          '${pc.name}: bạn xác nhận PC chưa được bật. Kiểm tra nguồn, Ethernet, MAC, BIOS và Windows theo hướng dẫn bên dưới.';
+      tab = 2;
+    });
+  }
+
   Future<void> wake(Pc pc) async {
-    if (waking.contains(pc.id)) return;
+    if (waking.contains(pc.id) || powerBusy.contains(pc.id)) return;
+    final session = WakeSession(pc);
+    wakeSessions[pc.id] = session;
     setState(() {
       waking.add(pc.id);
-      manuallyOffline.remove(pc.id);
-      manuallyOnline.remove(pc.id);
       statuses[pc.id] = 'Đang gửi tín hiệu…';
     });
+    unawaited(
+      Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => WakeConsolePage(
+            session: session,
+            confirmed: () => manualWake(pc),
+            help: () => wakeNotStarted(pc, closeConsole: true),
+          ),
+        ),
+      ),
+    );
     try {
+      session.log('Đọc Wi-Fi của điện thoại…');
       final current = await widget.net.network();
-      if (!mounted) return;
-      if (current == null) {
+      if (!mounted || session.stopped) return;
+      if (current == null)
         throw StateError('Kết nối Wi-Fi cùng mạng với PC để bật máy.');
-      }
-      if (pc.network.isNotEmpty && pc.network != current.key) {
+      if (pc.network.isNotEmpty && pc.network != current.key)
         throw StateError(
-          'Mạng đã thay đổi. Mở Chi tiết / Quét lại để cập nhật máy.',
+          'Subnet đã thay đổi. Sửa máy hoặc quét lại trước khi Wake.',
         );
-      }
-      await widget.net.wake(pc, current);
-      if (!mounted) return;
-      setState(() => statuses[pc.id] = 'Đã gửi · kiểm tra sau 10 giây');
-      notifyWake('Đã gửi tín hiệu khởi động đến ${pc.name}.');
-      wakeTimers[pc.id] = Timer(
-        Duration(seconds: 10),
-        () => checkWake(pc, current),
+      session.log(
+        'Wi-Fi ${current.ip} / ${current.mask} · broadcast ${current.broadcast}',
       );
+      session.log(
+        'Yêu cầu UDP ${pc.broadcast.isEmpty ? current.broadcast : pc.broadcast}:${pc.port} · MAC ${pc.mac} · ${pc.retries} lần',
+      );
+      await widget.net.wakeWithLog(pc, current, session.log);
+      if (!mounted || session.stopped) return;
+      session.sent = true;
+      session.readyAt = DateTime.now().add(Duration(seconds: pc.startupDelay));
+      session.update('Đã gửi · Chờ PC khởi động');
+      session.log(
+        'Đã gửi tín hiệu. Kiểm tra ngay và mỗi 3 giây; phản hồi sớm sẽ chuyển ngay. UDP không xác nhận PC đã nhận gói.',
+      );
+      setState(() => statuses[pc.id] = 'Chờ PC khởi động');
+      notifyWake('Đã gửi tín hiệu khởi động đến ${pc.name}.');
+      unawaited(checkWake(pc, current));
       try {
         await persist(
           pcs
               .map((p) => p.id == pc.id ? p.copy(lastWake: DateTime.now()) : p)
               .toList(),
         );
-        await widget.store.log('Đã gửi tín hiệu khởi động · ${pc.name}');
+        await widget.store.log('Đã gửi Wake · ${pc.name}');
       } catch (_) {
-        /* Sending succeeded even if local history cannot be saved. */
+        /* UDP succeeded even when local history could not be saved. */
       }
-    } catch (error) {
-      if (!mounted) return;
+    } catch (e) {
+      if (!mounted || session.stopped) return;
+      session.log('Lỗi: $e');
+      session.update('Chưa xác nhận gửi thành công');
+      session.stopped = true;
       setState(() {
         waking.remove(pc.id);
         statuses[pc.id] = 'Chưa gửi được tín hiệu';
       });
-      notifyWake(
-        error is StateError
-            ? error.message.toString()
-            : 'Chưa gửi được tín hiệu. Kiểm tra Wi-Fi và quyền mạng cục bộ.',
-      );
     }
   }
 
   Future<void> checkWake(Pc pc, Lan sentNetwork) async {
-    wakeTimers.remove(pc.id);
-    if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
+    final session = wakeSessions[pc.id];
+    if (!mounted ||
+        session == null ||
+        session.stopped ||
+        !pcs.any((p) => p.id == pc.id))
+      return;
     var online = false;
-    String? reason;
     try {
       final current = await widget.net.network();
-      if (pc.ip.isEmpty) {
-        reason = 'Máy chưa có IP để kiểm tra. Mở Chi tiết máy và bổ sung địa chỉ IP.';
-      } else if (current == null ||
-          current.key != sentNetwork.key ||
-          !current.contains(pc.ip)) {
-        reason = 'Kết nối mạng đã thay đổi hoặc IP của PC không cùng mạng.';
-      } else {
+      if (current != null &&
+          current.key == sentNetwork.key &&
+          pc.ip.isNotEmpty &&
+          current.contains(pc.ip)) {
         online = await pcReachable(pc)
-            .timeout(Duration(seconds: 5), onTimeout: () => false);
+            .timeout(const Duration(seconds: 5), onTimeout: () => false);
       }
-    } catch (_) {
-      reason =
-          'Chưa kiểm tra được kết nối. Kiểm tra Wi-Fi và quyền mạng cục bộ.';
+    } catch (e) {
+      session.log('Kiểm tra trạng thái: $e');
     }
-    if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
-    var manual = false;
-    if (!online) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => PopScope(
-          canPop: false,
-          child: AlertDialog(
-            icon: Icon(
-              Icons.desktop_windows_rounded,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: Text('PC đã bật chưa?'),
-            content: Text(
-              'App chưa nhận được phản hồi từ ${pc.name}. Hãy kiểm tra máy và xác nhận trạng thái.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text('Chưa bật'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text('Đã bật'),
-              ),
-            ],
-          ),
-        ),
-      );
-      if (!mounted || !pcs.any((p) => p.id == pc.id)) return;
-      manual = confirmed == true;
-      online = manual;
-    }
-    setState(() {
-      waking.remove(pc.id);
-      if (online) {
-        if (manual) manuallyOnline.add(pc.id);
+    if (!mounted || session.stopped || wakeSessions[pc.id] != session) return;
+    if (online) {
+      session.online = true;
+      session.stopped = true;
+      session.log('PC phản hồi tại ${pc.ip}.');
+      session.update('PC đang phản hồi');
+      setState(() {
+        waking.remove(pc.id);
+        manuallyOffline.remove(pc.id);
+        manuallyOnline.remove(pc.id);
         onlineIds.add(pc.id);
-      } else {
-        onlineIds.remove(pc.id);
-      }
-      statuses[pc.id] = online ? 'Đang hoạt động' : 'Chưa xác nhận khởi động';
-      if (!online) {
-        wakeHelp =
-            '${pc.name}: đã gửi tín hiệu nhưng chưa xác nhận được máy đã khởi động sau khoảng 10 giây. ${reason ?? 'PC có thể cần thêm thời gian hoặc đang chặn kiểm tra kết nối.'}';
-        tab = 2;
-      }
-    });
-    notifyWake(
-      online
-          ? manual
-                ? 'Đã cập nhật: ${pc.name} đã bật theo xác nhận của bạn.'
-                : '${pc.name} đã khởi động thành công — PC đang phản hồi.'
-          : 'Chưa xác nhận được ${pc.name} đã bật. Xem hướng dẫn kiểm tra.',
-    );
-    try {
-      await widget.store.log(
-        '${manual
-            ? 'Người dùng xác nhận đã bật'
-            : online
-            ? 'PC đã phản hồi'
-            : 'Chưa xác nhận khởi động'} · ${pc.name}',
-      );
-    } catch (_) {
-      /* Keep the observed result. */
+        statuses[pc.id] = 'Đang hoạt động';
+      });
+      wakeTimers.remove(pc.id)?.cancel();
+      notifyWake('${pc.name} đang phản hồi.');
+      return;
     }
+    final elapsed = DateTime.now().isAfter(session.readyAt!);
+    session.update(elapsed ? 'Chưa nhận phản hồi từ PC' : 'Chờ PC khởi động');
+    session.log(
+      pc.ip.isEmpty
+          ? 'Chưa lưu IP để kiểm tra trạng thái.'
+          : 'Chưa nhận phản hồi từ ${pc.ip}.',
+    );
+    if (elapsed) setState(() => statuses[pc.id] = 'Đang chờ phản hồi từ PC');
+    final deadline = session.readyAt!.add(Duration(seconds: pc.timeout));
+    if (DateTime.now().isAfter(deadline)) {
+      session.log('Hết thời gian theo dõi. Không khẳng định PC đã tắt.');
+      stopWake(pc);
+      session.update('Chưa nhận phản hồi · Hết thời gian theo dõi');
+      return;
+    }
+    wakeTimers[pc.id] = Timer(
+      const Duration(seconds: 3),
+      () => checkWake(pc, sentNetwork),
+    );
   }
 
   Future<void> action(String value, Pc pc) async {
@@ -983,7 +1065,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         : refreshing
                         ? 'Đang kiểm tra…'
                         : manuallyOffline.contains(pc.id)
-                        ? 'Đã tắt · bạn đã xác nhận'
+                        ? 'Chưa bật · xác nhận thủ công'
                         : 'Chưa nhận được phản hồi',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: secondary, fontSize: 13),
@@ -1009,7 +1091,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   onlineIds.add(pc.id);
                                 }
                                 statuses[pc.id] = online
-                                    ? 'Đã tắt · bạn đã xác nhận'
+                                    ? 'Chưa bật · xác nhận thủ công'
                                     : 'Đã bật · bạn đã xác nhận';
                               });
                             },
@@ -1174,9 +1256,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   ) => SizedBox(
     height: 136,
     child: FilledButton(
-      onPressed: busy
-          ? null
-          : () => pc.agentPaired ? power(pc, command) : pairAgent(pc),
+      onPressed: busy ? null : () => power(pc, command),
       style: FilledButton.styleFrom(
         backgroundColor: command == 'sleep'
             ? Theme.of(context).colorScheme.surfaceContainerLow

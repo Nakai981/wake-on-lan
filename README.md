@@ -1,5 +1,9 @@
 ﻿# Wake My PC
 
+Bản **React + Vite PWA** độc lập nằm trong [`web-react/`](web-react/README.md).
+Build thành file tĩnh, dùng Node.js LAN bridge cho Wake-on-LAN và Windows Agent.
+Mã Flutter bên dưới được giữ nguyên.
+
 Ứng dụng Flutter Android/iOS để bật máy tính trong mạng nội bộ, triển khai từ `srs/v1.md`.
 
 ## Chức năng

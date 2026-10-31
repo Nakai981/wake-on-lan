@@ -1,0 +1,4 @@
+﻿Source: https://github.com/google/fonts/tree/c13390277dfb1fcc7415d84ef7ef9cfc1e52f8c1/ofl/bevietnampro
+Upstream: https://github.com/bettergui/BeVietnamPro
+License: SIL Open Font License 1.1 (OFL.txt)
+Bundled unchanged, weights 400 through 900. No runtime font downloads.

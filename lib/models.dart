@@ -66,7 +66,7 @@ Uint8List magicPacket(String mac) {
 
 class Pc {
   final String id, name, mac, ip, broadcast, network;
-  final int port, retries, timeout;
+  final int port, retries, timeout, startupDelay;
   final bool favorite;
   final bool agentPaired;
   final DateTime? lastWake;
@@ -80,6 +80,7 @@ class Pc {
     this.port = 9,
     this.retries = 3,
     this.timeout = 60,
+    this.startupDelay = 20,
     this.favorite = false,
     this.agentPaired = false,
     this.lastWake,
@@ -99,6 +100,7 @@ class Pc {
     port: port,
     retries: retries,
     timeout: timeout,
+    startupDelay: startupDelay,
     favorite: favorite ?? this.favorite,
     agentPaired: agentPaired ?? this.agentPaired,
     lastWake: lastWake ?? this.lastWake,
@@ -113,6 +115,7 @@ class Pc {
     'port': port,
     'retries': retries,
     'timeout': timeout,
+    'startupDelay': startupDelay,
     'favorite': favorite,
     'agentPaired': agentPaired,
     'lastWake': lastWake?.toIso8601String(),
@@ -127,6 +130,7 @@ class Pc {
     port: j['port'] ?? 9,
     retries: j['retries'] ?? 3,
     timeout: j['timeout'] ?? 60,
+    startupDelay: ((j['startupDelay'] as num?)?.toInt() ?? 20).clamp(10, 30),
     favorite: j['favorite'] ?? false,
     agentPaired: j['agentPaired'] ?? false,
     lastWake: DateTime.tryParse(j['lastWake'] ?? ''),
