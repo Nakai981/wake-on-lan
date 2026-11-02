@@ -34,7 +34,7 @@ class _SetupPageState extends State<SetupPage> {
   int mode = 2, done = 0, total = 0, generation = 0, metadataGeneration = 0;
   bool scanning = false, loading = false, saving = false;
   Lan? lan;
-  String? error, info, autoName, autoMac;
+  String? error, info, autoMac;
   PairingQr? qr;
   final found = <String>[];
   @override
@@ -42,7 +42,7 @@ class _SetupPageState extends State<SetupPage> {
     super.initState();
     final pc = widget.existing;
     if (pc != null) {
-      mode = 1;
+      mode = 0;
       name.text = pc.name;
       mac.text = pc.mac;
       ip.text = pc.ip;
@@ -140,36 +140,35 @@ class _SetupPageState extends State<SetupPage> {
     } catch (_) {
       return;
     }
+    if (keepMac) {
+      setState(
+        () => info = 'Đã điền IP và MAC từ QR. Nhập tên máy rồi bấm Hoàn tất để lưu ghép nối.',
+      );
+      return;
+    }
     setState(() {
       loading = true;
-      info = 'Đang lấy tên máy và MAC…';
+      info = 'Đang tìm MAC…';
     });
     try {
-      final values = await Future.wait([
-        widget.net.nameFor(address),
-        keepMac ? Future<String?>.value(null) : widget.net.macFor(address),
-      ]);
-      if (!mounted || run != metadataGeneration || ip.text != address) return;
+      final value = await widget.net.macFor(address);
+      if (!mounted || run != metadataGeneration || ip.text.trim() != address)
+        return;
       setState(() {
-        if (values[0] != null && (name.text.isEmpty || name.text == autoName)) {
-          name.text = values[0]!;
-          autoName = values[0];
+        if (value != null && (mac.text.isEmpty || mac.text == autoMac)) {
+          mac.text = value;
+          autoMac = value;
         }
-        if (values[1] != null && (mac.text.isEmpty || mac.text == autoMac)) {
-          mac.text = values[1]!;
-          autoMac = values[1];
-        }
-        info = keepMac
-            ? 'Đã điền IP và MAC từ QR. Bấm Hoàn tất để xác thực và lưu.'
-            : values[1] == null
-            ? 'Không đọc được MAC. Nhập MAC Ethernet hoặc dùng QR Windows Agent.'
-            : 'Đã lấy MAC. Kiểm tra đúng card Ethernet dùng để Wake.';
+        info = value == null
+            ? 'Không đọc được MAC qua LAN. Nhập Physical Address từ ipconfig /all trên PC hoặc dùng QR Windows Agent.'
+            : 'Đã lấy MAC. Kiểm tra đúng card mạng dùng để Wake và tự đặt tên máy.';
       });
     } catch (_) {
-      if (mounted && run == metadataGeneration)
+      if (mounted && run == metadataGeneration) {
         setState(
-          () => info = 'Chưa lấy được tên/MAC. Bạn có thể nhập thủ công.',
+          () => info = 'Không đọc được MAC. Bạn có thể nhập MAC bên dưới.',
         );
+      }
     } finally {
       if (mounted && run == metadataGeneration) setState(() => loading = false);
     }
@@ -177,7 +176,6 @@ class _SetupPageState extends State<SetupPage> {
 
   Future<void> select(String address) async {
     setState(() {
-      if (name.text == autoName) name.clear();
       if (mac.text == autoMac) mac.clear();
       ip.text = address;
       qr = null;
@@ -196,10 +194,6 @@ class _SetupPageState extends State<SetupPage> {
       ip.text = value.ip;
       mac.text = value.mac;
       error = null;
-      if (name.text.isEmpty || name.text == autoName) {
-        name.text = 'PC ${value.ip}';
-        autoName = name.text;
-      }
     });
     await metadata(value.ip, keepMac: true);
   }
@@ -249,7 +243,8 @@ class _SetupPageState extends State<SetupPage> {
         timeout: int.parse(timeout.text),
         startupDelay: int.parse(startup.text),
         favorite: old?.favorite ?? false,
-        agentPaired: old?.agentPaired ?? false,
+        agentPaired:
+            old != null && old.agentPaired && old.mac == normalizeMac(mac.text),
         lastWake: old?.lastWake,
       );
       if (qr != null) {
@@ -321,8 +316,7 @@ class _SetupPageState extends State<SetupPage> {
                     children: [
                       for (final option in const [
                         (2, 'QR Agent', Icons.qr_code_scanner),
-                        (0, 'Quét LAN', Icons.radar),
-                        (1, 'Nhập tay', Icons.edit_outlined),
+                        (0, 'LAN / Nhập tay', Icons.edit_outlined),
                       ]) ...[
                         if (option.$1 != 2) const SizedBox(width: 8),
                         Expanded(
@@ -423,7 +417,7 @@ class _SetupPageState extends State<SetupPage> {
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        'Chọn IP để thử lấy tên và MAC. Kết quả có thể gồm router/điện thoại.',
+                        'Chọn IP từ kết quả hoặc nhập IP bên dưới. Tự đặt tên máy và bổ sung MAC nếu không đọc được. Kết quả có thể gồm router/điện thoại.',
                       ),
                     ),
                   ],
@@ -496,7 +490,7 @@ class _SetupPageState extends State<SetupPage> {
                         : () => metadata(ip.text.trim(), keepMac: qr != null),
                     icon: const Icon(Icons.refresh),
                     label: Text(
-                      loading ? 'Đang lấy thông tin…' : 'Tự lấy tên & MAC',
+                      loading ? 'Đang tìm MAC…' : 'Thử lấy MAC từ IP',
                     ),
                   ),
                   if (info != null)

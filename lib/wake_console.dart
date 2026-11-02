@@ -40,9 +40,29 @@ class WakeConsolePage extends StatefulWidget {
 
 class _WakeConsolePageState extends State<WakeConsolePage> {
   Timer? timer;
+  bool closing = false;
+
+  void closeWhenOnline() {
+    if (!mounted || !widget.session.online || closing) return;
+    closing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route == null || !route.isActive) return;
+      final navigator = Navigator.of(context);
+      if (route.isCurrent) {
+        navigator.pop();
+      } else {
+        navigator.removeRoute(route);
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.session.addListener(closeWhenOnline);
+    closeWhenOnline();
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -50,6 +70,7 @@ class _WakeConsolePageState extends State<WakeConsolePage> {
 
   @override
   void dispose() {
+    widget.session.removeListener(closeWhenOnline);
     timer?.cancel();
     super.dispose();
   }

@@ -85,15 +85,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> power(Pc pc, String command) async {
     if (powerBusy.contains(pc.id) || waking.contains(pc.id)) return;
-    final authenticated = await Navigator.push<Pc>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AgentPairPage(pc: pc, agentClient: agent),
-      ),
-    );
-    if (!mounted || authenticated == null) return;
-    pc = authenticated;
-    await persist(pcs.map((p) => p.id == pc.id ? pc : p).toList());
+    if (!pc.agentPaired) {
+      await pairAgent(pc);
+      if (!mounted) return;
+      final saved = pcs.where((p) => p.id == pc.id);
+      if (saved.isEmpty || !saved.first.agentPaired) return;
+      pc = saved.first;
+    }
     if (!mounted) return;
     final label = command == 'sleep' ? 'Sleep' : 'Tắt máy';
     final confirmed = await showDialog<bool>(
@@ -222,7 +220,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     try {
       pcs = widget.store.read();
-      manuallyOffline.addAll(pcs.map((p) => p.id));
     } catch (_) {
       storageError = true;
     }
@@ -325,7 +322,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       await persist([...pcs.where((p) => p.id != result.id), result]);
-      if (pc == null) manuallyOffline.add(result.id);
+      manuallyOffline.remove(result.id);
+      manuallyOnline.remove(result.id);
       if (!mounted) return;
       message(context, 'Đã lưu ${result.name}. Bạn có thể thử bật máy.');
       refresh();
@@ -483,6 +481,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         manuallyOnline.remove(pc.id);
         onlineIds.add(pc.id);
         statuses[pc.id] = 'Đang hoạt động';
+        confirmationEffect++;
       });
       wakeTimers.remove(pc.id)?.cancel();
       notifyWake('${pc.name} đang phản hồi.');
