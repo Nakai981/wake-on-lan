@@ -7,10 +7,25 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
+import 'power_delay.dart';
 
 class DeviceStore {
   final SharedPreferences prefs;
   DeviceStore(this.prefs);
+  int get powerDelaySeconds {
+    final seconds = prefs.getInt('powerDelaySeconds') ?? defaultPowerDelay;
+    return validPowerDelay(seconds) ? seconds : defaultPowerDelay;
+  }
+
+  Future<void> savePowerDelay(int seconds) async {
+    if (!validPowerDelay(seconds)) {
+      throw const FormatException('Nhập thời gian từ 1 đến 86400 giây.');
+    }
+    if (!await prefs.setInt('powerDelaySeconds', seconds)) {
+      throw const FileSystemException('Không lưu được thời gian chờ.');
+    }
+  }
+
   List<Pc> read() {
     final raw = prefs.getString('devices');
     if (raw == null) return [];

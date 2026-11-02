@@ -14,6 +14,8 @@ import 'app_theme.dart';
 import 'power_confirmation_effect.dart';
 import 'wake_console.dart';
 import 'agent_help.dart';
+import 'power_delay.dart';
+import 'power_delay_settings.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -94,14 +96,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     if (!mounted) return;
     final label = command == 'sleep' ? 'Sleep' : 'Tắt máy';
+    final delay = widget.store.powerDelaySeconds;
+    final delayLabel = powerDelayLabel(delay);
+    final checkDelay = delay + 10;
+    final checkLabel = powerDelayLabel(checkDelay);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('$label ${pc.name}?'),
         content: Text(
           command == 'shutdown'
-              ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ 10 giây để bạn có thể hủy.'
-              : 'PC sẽ chuyển sang Sleep sau 10 giây. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
+              ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ $delayLabel để bạn có thể hủy.'
+              : 'PC sẽ chuyển sang Sleep sau $delayLabel. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
         ),
         actions: [
           TextButton(
@@ -118,7 +124,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!mounted || confirmed != true) return;
     setState(() => powerBusy.add(pc.id));
     try {
-      final result = await agent.command(pc, command);
+      final result = await agent.command(pc, powerDelayCommand(command, delay));
       if (!mounted) return;
       if (result != 'accepted') {
         message(
@@ -131,14 +137,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       setState(() {
         cancelledPower.remove(pc.id);
-        statuses[pc.id] = 'Đã gửi $label · chờ kiểm tra sau 20 giây';
+        statuses[pc.id] = 'Đã gửi $label · thực hiện sau $delayLabel';
       });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            duration: Duration(seconds: 10),
-            content: Text('PC đã nhận lệnh $label, sẽ thực hiện sau 10 giây.'),
+            duration: Duration(seconds: delay.clamp(1, 10)),
+            content: Text(
+              'PC đã nhận lệnh $label, sẽ thực hiện sau $delayLabel.',
+            ),
             action: SnackBarAction(
               label: 'Hủy lệnh',
               onPressed: () => cancelPower(pc),
@@ -146,10 +154,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         );
       try {
-        await widget.store.log('Đã gửi lệnh $label · ${pc.name}');
+        await widget.store.log(
+          'Đã gửi lệnh $label · ${pc.name} · chờ $delayLabel',
+        );
       } catch (_) {}
       powerTimers[pc.id]?.cancel();
-      powerTimers[pc.id] = Timer(const Duration(seconds: 20), () async {
+      powerTimers[pc.id] = Timer(Duration(seconds: checkDelay), () async {
         final online = await pcReachable(pc);
         if (!mounted || cancelledPower.contains(pc.id)) return;
         setState(() {
@@ -166,14 +176,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         powerTimers.remove(pc.id);
         message(
           context,
-          online ? 'PC vẫn phản hồi sau 20 giây.' : 'PC chưa phản hồi sau 20 giây; chưa xác nhận chắc chắn đã Sleep/tắt.',
+          online
+              ? 'PC vẫn phản hồi sau $checkLabel.'
+              : 'PC chưa phản hồi sau $checkLabel; chưa xác nhận chắc chắn đã Sleep/tắt.',
         );
       });
     } catch (_) {
       if (mounted) {
         message(
           context,
-          'Chưa xác nhận được lệnh. Kiểm tra Agent, IP và mã ghép nối. Nếu mất kết nối sau khi gửi, hãy kiểm tra hoặc hủy trên PC.',
+          delay == defaultPowerDelay
+              ? 'Chưa xác nhận được lệnh. Kiểm tra Agent, IP và mã ghép nối. Nếu mất kết nối sau khi gửi, hãy kiểm tra hoặc hủy trên PC.'
+              : 'Chưa xác nhận được lệnh. Cập nhật Windows Agent để dùng thời gian chờ tùy chỉnh, kiểm tra IP và kết nối. Kiểm tra hoặc hủy trên PC nếu lệnh đã được gửi.',
         );
       }
     } finally {
@@ -600,6 +614,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               SizedBox(height: 24),
               menuRow(
                 ctx,
+                'powerDelay',
+                Icons.timer_outlined,
+                'Thời gian chờ tắt / Sleep',
+                'Dùng chung · ${powerDelayLabel(widget.store.powerDelaySeconds)}',
+              ),
+              menuRow(
+                ctx,
                 'controls',
                 Icons.touch_app_rounded,
                 'Điều khiển',
@@ -687,6 +708,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
     if (!mounted || choice == null) return;
     switch (choice) {
+      case 'powerDelay':
+        final saved = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => PowerDelaySettings(store: widget.store),
+        );
+        if (mounted && saved == true) {
+          message(
+            context,
+            'Đã lưu thời gian chờ ${powerDelayLabel(widget.store.powerDelaySeconds)} cho Shutdown và Sleep.',
+          );
+        }
       case 'controls':
         await openControls();
       case 'add':

@@ -69,8 +69,7 @@ namespace WakeMyPc {
         readonly AgentServer server;
         readonly RemoteMouse mouse = new RemoteMouse(RemoteInput.MouseEvent);
         byte[] secret;
-        string pending;
-        DateTime deadline;
+        readonly PowerDelay pendingPower = new PowerDelay();
         bool exiting;
         readonly string secretPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WakeMyPcAgent", "pairing.bin");
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -94,12 +93,12 @@ namespace WakeMyPc {
             buttons.Controls.Add(qrButton);
             var show = new CheckBox { Text = "Hiện mã", AutoSize = true }; show.CheckedChanged += (s,e) => pairing.UseSystemPasswordChar = !show.Checked; buttons.Controls.Add(show);
             var copy = new Button { Text = "Sao chép", AutoSize = true }; copy.Click += (s,e) => Clipboard.SetText(pairing.Text); buttons.Controls.Add(copy);
-            var rotate = new Button { Text = "Đổi mã", AutoSize = true }; rotate.Click += (s,e) => { if (MessageBox.Show("Hủy ghép nối tất cả điện thoại cũ?", Text, MessageBoxButtons.YesNo) == DialogResult.Yes) { mouse.Release(); pending = null; secret = NewSecret(); pairing.Text = AgentServer.Hex(secret); status.Text = "Đã đổi mã. Ghép nối lại điện thoại."; } }; buttons.Controls.Add(rotate); layout.Controls.Add(buttons);
+            var rotate = new Button { Text = "Đổi mã", AutoSize = true }; rotate.Click += (s,e) => { if (MessageBox.Show("Hủy ghép nối tất cả điện thoại cũ?", Text, MessageBoxButtons.YesNo) == DialogResult.Yes) { mouse.Release(); pendingPower.Cancel(); secret = NewSecret(); pairing.Text = AgentServer.Hex(secret); status.Text = "Đã đổi mã. Ghép nối lại điện thoại."; } }; buttons.Controls.Add(rotate); layout.Controls.Add(buttons);
             var startup = new CheckBox { Text = "Chạy nền khi đăng nhập Windows", AutoSize = true, Margin = new Padding(0,16,0,12) };
             using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) startup.Checked = key != null && key.GetValue("WakeMyPcAgent") != null;
             startup.CheckedChanged += (s,e) => { try { using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) { if (startup.Checked) key.SetValue("WakeMyPcAgent", "\"" + Application.ExecutablePath + "\" --background"); else key.DeleteValue("WakeMyPcAgent", false); } } catch (Exception ex) { MessageBox.Show(ex.Message); } }; layout.Controls.Add(startup);
             var cancel = new Button { Text = "Hủy lệnh đang chờ", Height = 40, Dock = DockStyle.Top }; cancel.Click += (s,e) => Cancel(); layout.Controls.Add(cancel);
-            layout.Controls.Add(new Label { Text = "Đóng cửa sổ để tiếp tục chạy ở khay hệ thống.\nCho phép Agent qua Windows Firewall trên mạng Private.\nLệnh Sleep/Tắt máy chờ 10 giây để bạn có thể hủy.\nTắt máy không ép đóng ứng dụng chưa lưu.", AutoSize = true, ForeColor = Color.FromArgb(99,117,139), Margin = new Padding(0,16,0,0) });
+            layout.Controls.Add(new Label { Text = "Đóng cửa sổ để tiếp tục chạy ở khay hệ thống.\nCho phép Agent qua Windows Firewall trên mạng Private.\nThời gian chờ Sleep/Tắt máy được đặt trên điện thoại.\nTắt máy không ép đóng ứng dụng chưa lưu.", AutoSize = true, ForeColor = Color.FromArgb(99,117,139), Margin = new Padding(0,16,0,0) });
             tray = new NotifyIcon { Icon = Icon, Text = "Wake My PC Agent", Visible = true };
             var menu = new ContextMenuStrip(); menu.Items.Add("Mở / Ghép nối", null, (s,e) => Open()); menu.Items.Add("Hủy lệnh đang chờ", null, (s,e) => Cancel()); menu.Items.Add("Thoát Agent", null, (s,e) => { exiting = true; Close(); }); tray.ContextMenuStrip = menu; tray.DoubleClick += (s,e) => Open();
             server = new AgentServer(IPAddress.Any, 47991, () => secret, command => (string)Invoke(new Func<string>(() => HandleCommand(command))));
@@ -109,23 +108,24 @@ namespace WakeMyPc {
         }
         byte[] NewSecret() { var bytes = AgentServer.Unhex(AgentServer.RandomHex(16)); File.WriteAllBytes(secretPath, ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser)); return bytes; }
         void Open() { Show(); WindowState = FormWindowState.Normal; Activate(); details.Text = NetworkDetails(); }
-        void Cancel() { pending = null; status.Text = "Đã hủy lệnh đang chờ · Sẵn sàng"; }
+        void Cancel() { pendingPower.Cancel(); status.Text = "Đã hủy lệnh đang chờ · Sẵn sàng"; }
         string HandleCommand(string command) {
             if (RemoteMouse.IsAllowed(command)) return mouse.Execute(command);
             if (RemoteInput.IsAllowed(command)) return RemoteInput.Execute(command);
             if (command == "status") return "online";
             if (command == "cancel") { Cancel(); return "cancelled"; }
-            if (pending != null) return "busy";
-            pending = command; deadline = DateTime.UtcNow.AddSeconds(10);
-            tray.ShowBalloonTip(8000, "Wake My PC", (command == "sleep" ? "Sleep" : "Tắt máy") + " sau 10 giây. Mở Agent để hủy.", ToolTipIcon.Info);
-            return "accepted";
+            var result = pendingPower.Handle(command, DateTime.UtcNow);
+            if (result == "accepted") {
+                tray.ShowBalloonTip(8000, "Wake My PC", (pendingPower.Action == "sleep" ? "Sleep" : "Tắt máy") + " lúc " + pendingPower.Deadline.ToLocalTime().ToString("HH:mm dd/MM/yyyy") + ". Mở Agent để hủy.", ToolTipIcon.Info);
+            }
+            return result;
         }
         void Tick(object sender, EventArgs args) {
             mouse.Expire();
-            if (pending == null) return;
-            status.Text = (pending == "sleep" ? "Sleep" : "Tắt máy") + " sau " + Math.Max(0, (int)Math.Ceiling((deadline - DateTime.UtcNow).TotalSeconds)) + " giây — bấm Hủy nếu cần.";
-            if (DateTime.UtcNow < deadline) return;
-            string command = pending; pending = null;
+            if (pendingPower.Action == null) return;
+            status.Text = (pendingPower.Action == "sleep" ? "Sleep" : "Tắt máy") + " lúc " + pendingPower.Deadline.ToLocalTime().ToString("HH:mm dd/MM/yyyy") + " — bấm Hủy nếu cần.";
+            string command = pendingPower.TakeDue(DateTime.UtcNow);
+            if (command == null) return;
             try { mouse.Release(); Power.Execute(command); status.Text = "Đã yêu cầu Windows thực hiện " + command; }
             catch (Exception ex) { status.Text = "Windows chưa thực hiện: " + ex.Message; tray.ShowBalloonTip(5000, "Lệnh không hoàn tất", status.Text, ToolTipIcon.Warning); }
         }

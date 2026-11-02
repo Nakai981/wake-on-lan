@@ -9,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'models.dart';
 import 'remote_commands.dart';
 import 'mouse_transport.dart';
+import 'power_delay.dart';
 
 const agentPort = 47991;
 String normalizePairCode(String value) {
@@ -60,6 +61,7 @@ class AgentClient {
   }) async {
     ipv4Number(ip);
     if (!{'status', 'sleep', 'shutdown', 'cancel'}.contains(command) &&
+        !validPowerDelayCommand(command) &&
         !validInputCommand(command) &&
         !validMouseCommand(command)) {
       throw ArgumentError('Lệnh không hỗ trợ');

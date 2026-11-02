@@ -57,7 +57,13 @@ void main() {
           await client.request('127.0.0.1', testCode, 'status', port: port),
           'online',
         );
-        for (final command in ['sleep', 'shutdown', 'cancel']) {
+        for (final command in [
+          'sleep',
+          'shutdown',
+          'cancel',
+          'power:sleep:30',
+          'power:shutdown:300',
+        ]) {
           expect(
             await client.request('127.0.0.1', testCode, command, port: port),
             'simulated',

@@ -15,7 +15,10 @@ Mã Flutter bên dưới được giữ nguyên.
 - Lưu nhiều PC, sửa/xóa có xác nhận, chọn máy mặc định, lưu lịch sử 60 hoạt động.
 - Gửi Magic Packet UDP thật, cấu hình số lần gửi/cổng/thời gian chờ.
 - Theo dõi phản hồi, chẩn đoán và cảnh báo khi subnet thay đổi.
+- Popup **Không gian của bạn → Thời gian chờ tắt / Sleep** lưu khoảng chờ chung cho Shutdown và Sleep, mặc định 10 giây.
 - Không tài khoản, backend, quảng cáo hay tự động bật PC.
+
+Trong app Flutter, đặt thời gian từ 1 giây đến 24 giờ rồi bấm **Lưu thời gian chờ**. Những lần sau xác nhận Shutdown/Sleep sẽ dùng giá trị đã lưu, kể cả sau khi mở lại app. Việc lưu cấu hình không gửi lệnh nguồn; lệnh đang chờ giữ nguyên thời gian trước đó. Thời gian tùy chỉnh cần Windows Agent mới được build từ mã nguồn này; Agent thực hiện đếm chờ nên có thể đóng app điện thoại sau khi PC đã nhận lệnh. Agent cần tiếp tục chạy trong lúc chờ. Có thể hủy từ menu PC hoặc khay hệ thống.
 
 ## Chạy
 

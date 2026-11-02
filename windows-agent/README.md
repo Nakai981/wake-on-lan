@@ -8,7 +8,7 @@
 2. Chạy `WakeMyPcAgent.exe`. Lưu đúng IP và MAC Ethernet hiển thị trong cửa sổ vào app điện thoại.
 3. Khi Windows Firewall hỏi, chỉ cho phép Agent trên mạng **Private** tin cậy. Nếu không có thông báo, mở Windows Security → Firewall & network protection → Allow an app through firewall → thêm EXE và chọn Private. Người build từ mã nguồn cũng có thể dùng `Enable-Firewall.ps1` để giới hạn TCP 47991 theo chương trình, mạng Private và LocalSubnet. Không mở cổng router.
 4. Trên điện thoại: menu PC → Ghép nối Windows Agent → nhập mã 32 ký tự từ Agent. Mã được lưu trong kho bảo mật của điện thoại.
-5. Trên Home, chọn Sleep hoặc Tắt máy và xác nhận trên điện thoại. Windows không yêu cầu xác nhận thêm: Agent chờ 10 giây rồi tự thực hiện. Thông báo ở khay hệ thống chỉ để báo trạng thái. Hủy từ điện thoại hoặc menu khay hệ thống nếu cần.
+5. Trên Home, chọn Sleep hoặc Tắt máy và xác nhận trên điện thoại. Windows không yêu cầu xác nhận thêm: Agent chờ theo cấu hình trong **Không gian của bạn → Thời gian chờ tắt / Sleep** rồi tự thực hiện (mặc định 10 giây, từ 1 giây đến 24 giờ). Cấu hình dùng chung cho cả hai nút và được lưu trên điện thoại cho các lần sau. Thông báo ở khay hệ thống hiển thị giờ dự kiến. Hủy từ điện thoại hoặc menu khay hệ thống nếu cần.
 6. Tích **Chạy nền khi đăng nhập Windows** nếu muốn tự khởi động. Không cần quyền administrator. Đóng cửa sổ Agent chỉ thu xuống tray; chọn Thoát Agent để dừng. Các script startup bên dưới dành cho bộ mã nguồn, không cần tải cùng EXE.
 
 ## Bật / tắt khởi động cùng Windows
@@ -20,6 +20,8 @@
 - Dùng PowerShell nếu cần: `powershell -ExecutionPolicy Bypass -File .\Enable-Startup.ps1 -NoStart` chỉ đăng ký tự chạy. Cả hai script hỗ trợ `-WhatIf` để xem trước mà không thay đổi cấu hình.
 
 Đây là ứng dụng nền theo phiên người dùng, không phải Windows Service. Cần đăng nhập Windows để chạy tự động. Không cần Agent để gửi Wake-on-LAN bật máy.
+
+Thời gian chờ tùy chỉnh cần build/cài lại Agent từ mã nguồn mới. Sau khi Agent xác nhận nhận lệnh, đóng app điện thoại vẫn tiếp tục đếm chờ trên PC. Agent phải tiếp tục chạy; thoát Agent hoặc khởi động lại Windows sẽ bỏ lệnh đang chờ. Đổi cấu hình trên điện thoại chỉ áp dụng từ lệnh tiếp theo.
 
 ## Bảo mật và phạm vi
 
@@ -47,7 +49,7 @@ Thay đổi này cần build lại cả app điện thoại và Agent; hot reloa
 
 - Mã ngẫu nhiên 128 bit; không gửi mã qua mạng. Windows bảo vệ mã bằng DPAPI CurrentUser.
 - TCP challenge/response HMAC-SHA256: challenge ngẫu nhiên riêng cho mỗi kết nối, client nonce và phản hồi ký. Mỗi kết nối nhận đúng một lệnh, giới hạn kích thước 512 byte, timeout 4 giây, tối đa 12 kết nối.
-- Hỗ trợ `status`, `sleep`, `shutdown`, `cancel`, `key:<mask>:<virtual-key>` và `text:<base64-utf8>` có giới hạn. Không có remote shell hay lệnh thực thi tùy ý.
+- Hỗ trợ `status`, `sleep`, `shutdown`, `cancel`, `power:<sleep|shutdown>:<seconds>` (1–86400 giây), `key:<mask>:<virtual-key>` và `text:<base64-utf8>` có giới hạn. Hai lệnh `sleep`/`shutdown` cũ vẫn chờ 10 giây. Không có remote shell hay lệnh thực thi tùy ý.
 - Giao thức xác thực nhưng không mã hóa nội dung lệnh; dùng trong LAN tin cậy. Không cung cấp truy cập Internet.
 - Đổi mã từ Agent để thu hồi toàn bộ điện thoại cũ. Tắt máy không dùng `/f` nên ứng dụng chưa lưu có thể chặn.
 - Sleep dùng SetSuspendState(false,false,false), giữ wake events; phụ thuộc phần cứng, chính sách Windows và quyền SeShutdownPrivilege. Lỗi được hiển thị trong Agent.
