@@ -163,6 +163,19 @@ trên Mac hoặc iPhone. Cần build lại app iOS để có các hành động 
 Chọn một PC mặc định bằng ngôi sao, cho phép **Local Network**, kết nối cùng LAN/Wi-Fi
 và đặt ngôn ngữ Siri thành **English**. Sleep/Shutdown/hủy cần Windows Agent đã ghép nối.
 
+### Mở thiết lập bằng một nút
+
+Trên **Home** của app iPhone, tìm thẻ **Thiết lập Siri** và bấm nút **Shortcuts**.
+Nút dùng [`ShortcutsUIButton` của Apple](https://developer.apple.com/documentation/appintents/shortcutsuibutton)
+để mở thẳng trang **Wake My PC** trong Shortcuts, với bốn hành động đã cấu hình sẵn:
+**PC On**, **PC Sleep**, **PC Off**, **Cancel PC**. Không cần tự tìm app trong danh sách hành động.
+
+Các App Shortcuts đã được app khai báo sẵn; mở trang thiết lập không chạy lệnh PC.
+Nếu muốn dùng tên riêng như “Siri, PC On”, vẫn cần lưu phím tắt cá nhân theo hướng dẫn dưới
+và xác nhận quyền khi iOS yêu cầu. Nút không tự tạo bốn phím tắt cá nhân hoặc tự chọn **Allow**.
+Nút yêu cầu iOS 16+; iOS 15 hiển thị thông báo phiên bản chưa hỗ trợ.
+Phần nút native cần build/kiểm thử thêm trên Mac và iPhone thật.
+
 ### Câu lệnh ngắn
 
 Trong **Shortcuts**, tạo phím tắt mới rồi chọn **Add Action → Apps → Wake My PC**.
@@ -280,9 +293,10 @@ Chạy riêng các kiểm thử Siri và lệnh nguồn:
 flutter test test/siri_shortcuts_test.dart test/siri_home_test.dart test/power_ui_test.dart test/power_delay_test.dart
 ```
 
-**Kết quả kiểm tra ngày 10/11/2026:** 29 kiểm thử liên quan Siri/lệnh nguồn đạt;
+**Kết quả kiểm tra ngày 10/11/2026:** 31 kiểm thử liên quan Siri/lệnh nguồn đạt,
+gồm kiểm tra thẻ thiết lập Siri ở chiều rộng 320 và 430 pixel;
 analyzer không báo vấn đề trong các tệp tích hợp Siri đã thay đổi.
-Toàn bộ bộ kiểm thử có 59 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
+Lần chạy toàn bộ trước khi thêm thẻ thiết lập Siri có 59 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
 Siri xác nhận cả 10 lỗi đã có sẵn trong các luồng QR/onboarding, Home và điều khiển.
 Các kiểm thử Siri dùng mô phỏng kênh native/mạng/Agent, chưa xác minh nhận giọng nói hoặc biên dịch Swift.
 

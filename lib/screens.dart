@@ -18,6 +18,7 @@ import 'agent_help.dart';
 import 'power_delay.dart';
 import 'power_delay_settings.dart';
 import 'siri_shortcuts.dart';
+import 'siri_setup.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -689,6 +690,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'Requires iOS 16 or later and Siri set to English.\n\n'
         'Select one default PC using the star in the device list. '
         'Connect to the same Wi-Fi and allow Local Network access.\n\n'
+        'Quick setup:\n'
+        'Tap the Shortcuts button under “Thiết lập Siri” on Home. '
+        'It opens the Wake My PC page with PC On, PC Sleep, PC Off and Cancel PC ready to use. '
+        'This does not run a PC command or automatically save personal shortcut names.\n\n'
         'Short voice commands:\n'
         'In Shortcuts, create a personal shortcut → Add Action → Apps → Wake My PC. '
         'Repeat for the four actions below. '
@@ -1418,6 +1423,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     style: TextButton.styleFrom(foregroundColor: secondary),
                     child: Text('Đổi máy tính', style: TextStyle(fontSize: 12)),
                   ),
+                ],
+                if (siri != null) ...[
+                  const SizedBox(height: 24),
+                  SiriSetupCard(showHelp: showSiriHelp),
                 ],
               ],
             ),

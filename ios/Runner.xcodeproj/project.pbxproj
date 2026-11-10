@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D942F10130FF000000000005 /* SiriSetupButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D942F10130FF000000000006 /* SiriSetupButton.swift */; };
 		D942F10130FF000000000001 /* SiriBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D942F10130FF000000000003 /* SiriBridge.swift */; };
 		D942F10130FF000000000002 /* PcAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D942F10130FF000000000004 /* PcAppIntents.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
@@ -44,6 +45,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D942F10130FF000000000006 /* SiriSetupButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriSetupButton.swift; sourceTree = "<group>"; };
 		D942F10130FF000000000003 /* SiriBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriBridge.swift; sourceTree = "<group>"; };
 		D942F10130FF000000000004 /* PcAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PcAppIntents.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
@@ -128,6 +130,7 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				D942F10130FF000000000003 /* SiriBridge.swift */,
 				D942F10130FF000000000004 /* PcAppIntents.swift */,
+				D942F10130FF000000000006 /* SiriSetupButton.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
@@ -290,6 +293,7 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				D942F10130FF000000000001 /* SiriBridge.swift in Sources */,
 				D942F10130FF000000000002 /* PcAppIntents.swift in Sources */,
+				D942F10130FF000000000005 /* SiriSetupButton.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 			);

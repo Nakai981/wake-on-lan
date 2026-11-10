@@ -9,6 +9,7 @@ import 'package:wake_my_pc/main.dart';
 import 'package:wake_my_pc/models.dart';
 import 'package:wake_my_pc/services.dart';
 import 'package:wake_my_pc/siri_shortcuts.dart';
+import 'package:wake_my_pc/siri_setup.dart';
 
 class HomeSiriNetwork extends NetworkService {
   int wakes = 0;
@@ -56,6 +57,90 @@ Future<dynamic> nativeCall(WidgetTester tester, String method, Map args) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final platformCalls = <MethodCall>[];
+  setUp(() {
+    platformCalls.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform_views, (call) async {
+          platformCalls.add(call);
+          return null;
+        });
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform_views, null);
+  });
+
+  for (final width in [320.0, 430.0]) {
+    testWidgets(
+      'Home embeds Siri setup without sending PC commands at $width',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 932);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SiriShortcuts.channel,
+          (_) async => null,
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SiriShortcuts.channel,
+            null,
+          ),
+        );
+        SharedPreferences.setMockInitialValues({});
+        final store = DeviceStore(await SharedPreferences.getInstance());
+        await store.save([
+          const Pc(
+            id: 'studio',
+            name: 'Studio PC',
+            mac: 'A4:BB:6D:12:34:56',
+            ip: '192.168.1.10',
+            favorite: true,
+            agentPaired: true,
+          ),
+        ]);
+        final network = HomeSiriNetwork();
+        final agent = HomeSiriAgent();
+        await tester.pumpWidget(
+          WakeApp(store: store, network: network, agentClient: agent),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Thiết lập Siri'), findsOneWidget);
+        expect(
+          tester.widget<UiKitView>(find.byType(UiKitView)).viewType,
+          SiriSetupCard.viewType,
+        );
+        final creations = platformCalls.where(
+          (call) => call.method == 'create',
+        );
+        expect(creations, isNotEmpty);
+        expect(
+          creations.every(
+            (call) =>
+                (call.arguments as Map)['viewType'] == SiriSetupCard.viewType,
+          ),
+          isTrue,
+        );
+        expect(network.wakes, 0);
+        expect(agent.commands.where((command) => command != 'status'), isEmpty);
+        expect(store.history(), isEmpty);
+        await tester.ensureVisible(find.text('Câu lệnh & quyền truy cập'));
+        await tester.tap(find.text('Câu lệnh & quyền truy cập'));
+        await tester.pumpAndSettle();
+        expect(find.text('Siri · English commands'), findsOneWidget);
+        expect(network.wakes, 0);
+        expect(agent.commands.where((command) => command != 'status'), isEmpty);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  }
+
   for (final action in ['wake', 'sleep', 'shutdown']) {
     testWidgets('native $action uses Home transport, history and power delay', (
       tester,
