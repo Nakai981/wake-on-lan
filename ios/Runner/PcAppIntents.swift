@@ -67,28 +67,38 @@ struct PcAppShortcuts: AppShortcutsProvider {
     AppShortcut(
       intent: WakePcIntent(),
       phrases: [
+        "Wake with \(.applicationName)",
         "Turn on my PC with \(.applicationName)",
         "Wake my computer with \(.applicationName)",
       ],
-      shortTitle: "Turn on my PC",
+      shortTitle: "PC On",
       systemImageName: "power"
     )
     AppShortcut(
       intent: SleepPcIntent(),
-      phrases: ["Put my PC to sleep with \(.applicationName)"],
-      shortTitle: "Put my PC to sleep",
+      phrases: [
+        "Sleep with \(.applicationName)",
+        "Put my PC to sleep with \(.applicationName)",
+      ],
+      shortTitle: "PC Sleep",
       systemImageName: "moon.zzz"
     )
     AppShortcut(
       intent: ShutdownPcIntent(),
-      phrases: ["Shut down my PC with \(.applicationName)"],
-      shortTitle: "Shut down my PC",
+      phrases: [
+        "Shut down with \(.applicationName)",
+        "Shut down my PC with \(.applicationName)",
+      ],
+      shortTitle: "PC Off",
       systemImageName: "power.circle"
     )
     AppShortcut(
       intent: CancelPcPowerIntent(),
-      phrases: ["Cancel my PC power command with \(.applicationName)"],
-      shortTitle: "Cancel PC power",
+      phrases: [
+        "Cancel power with \(.applicationName)",
+        "Cancel my PC power command with \(.applicationName)",
+      ],
+      shortTitle: "Cancel PC",
       systemImageName: "xmark.circle"
     )
   }

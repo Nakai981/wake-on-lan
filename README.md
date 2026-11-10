@@ -163,17 +163,45 @@ trên Mac hoặc iPhone. Cần build lại app iOS để có các hành động 
 Chọn một PC mặc định bằng ngôi sao, cho phép **Local Network**, kết nối cùng LAN/Wi-Fi
 và đặt ngôn ngữ Siri thành **English**. Sleep/Shutdown/hủy cần Windows Agent đã ghép nối.
 
-| Hành động | Câu nói |
-| --- | --- |
-| Bật PC | “Siri, turn on my PC with Wake My PC.” |
-| Sleep | “Siri, put my PC to sleep with Wake My PC.” |
-| Shutdown | “Siri, shut down my PC with Wake My PC.” |
-| Hủy lệnh nguồn đang chờ | “Siri, cancel my PC power command with Wake My PC.” |
+### Câu lệnh ngắn
 
-Trong menu app iOS, mở **Siri · English commands** để xem hướng dẫn. Muốn dùng câu ngắn
-hơn, tìm ứng dụng **Wake My PC** trong **Shortcuts**, chọn hành động **Turn on my PC**,
-**Put my PC to sleep**, **Shut down my PC** hoặc **Cancel PC power command** rồi thêm vào
-phím tắt cá nhân. Đặt tên phím tắt, ví dụ “Turn on my PC”, rồi gọi Siri và nói tên đó.
+Trong **Shortcuts**, tạo phím tắt mới rồi chọn **Add Action → Apps → Wake My PC**.
+Lặp lại để có bốn phím tắt cá nhân, mỗi phím tắt chứa một hành động của app.
+Đặt tên theo bảng sau rồi gọi Siri:
+
+| Tên phím tắt cá nhân | Hành động của app | Câu nói |
+| --- | --- | --- |
+| **PC On** | Turn on my PC | “Siri, PC On.” |
+| **PC Sleep** | Put my PC to sleep | “Siri, PC Sleep.” |
+| **PC Off** | Shut down my PC | “Siri, PC Off.” |
+| **Cancel PC** | Cancel PC power command | “Siri, Cancel PC.” |
+
+Các tên ngắn cần được tạo trong Shortcuts trên iPhone; app không tự tạo phím tắt cá nhân
+hoặc tự cấp quyền thay người dùng. Trong menu app iOS, mở **Siri · English commands** để xem lại hướng dẫn.
+
+Nếu chưa tạo phím tắt cá nhân, dùng các câu App Shortcut đăng ký sẵn:
+
+| Hành động | Câu nói trực tiếp |
+| --- | --- |
+| Bật PC | “Siri, wake with Wake My PC.” |
+| Sleep | “Siri, sleep with Wake My PC.” |
+| Shutdown | “Siri, shut down with Wake My PC.” |
+| Hủy lệnh nguồn đang chờ | “Siri, cancel power with Wake My PC.” |
+
+Câu gọi App Shortcut phải chứa tên ứng dụng theo quy định của Apple. Các câu dài từ bản trước
+vẫn được giữ làm câu gọi thay thế; định danh hành động cũng được giữ để không đổi các phím tắt đã tạo.
+
+### Nút Allow của Shortcuts
+
+Chạy từng phím tắt bằng tay trong Shortcuts trước khi gọi Siri. Nếu hộp thoại quyền có lựa chọn
+**Always Allow**, chọn mục đó để Shortcuts ghi nhớ quyền truy cập thay vì **Allow Once**.
+Theo [hướng dẫn quyền riêng tư của Apple](https://support.apple.com/guide/shortcuts/apd961a4fc65/ios),
+Shortcuts sẽ không hỏi lại quyền đó ở lần chạy tiếp theo sau khi chọn Always Allow.
+Các quyền khác hoặc thay đổi phím tắt vẫn có thể phát sinh yêu cầu riêng.
+
+App không thể tự chấp nhận hoặc tắt hộp thoại **Allow/Allow Access** do iOS/Shortcuts quản lý.
+Nếu chỉ có nút **Allow**, vẫn cần người dùng cấp quyền theo hộp thoại thực tế; không có thiết lập
+trong app để bỏ qua nó. Quyền này khác với xác nhận Sleep/Shutdown của app và yêu cầu mở khóa iPhone.
 
 - Siri mở app để thực thi và có thể yêu cầu mở khóa iPhone.
 - Sleep/Shutdown yêu cầu xác nhận qua Siri và dùng thời gian chờ đã lưu trong app.
