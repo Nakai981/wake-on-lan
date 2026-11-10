@@ -31,9 +31,11 @@ Agent nhận văn bản Unicode (tiếng Việt), Esc/F1–F12, phím điều h�
 
 Phím tắt: Desktop = Win+D, đổi cửa sổ = Alt+Tab, chụp màn hình = Win+Shift+S, tìm kiếm = Win+S. Âm lượng dùng phím tăng/giảm của Windows, không đồng bộ phần trăm từ PC. Các thao tác dùng SendInput, chỉ áp dụng phiên desktop đã đăng nhập; không hỗ trợ UAC/màn hình đăng nhập hoặc ứng dụng có quyền cao hơn Agent. Tham khảo: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
 
-Mỗi tổ hợp có đủ nhấn và nhả trong cùng yêu cầu. Agent từ chối khi người dùng PC đang giữ phím bổ trợ. Lệnh được giới hạn danh sách cho phép và ký HMAC như lệnh nguồn; văn bản không được mã hóa trên đường truyền, chỉ dùng LAN tin cậy. Touchpad vẫn chưa gửi chuyển động chuột thật.
+Mỗi tổ hợp có đủ nhấn và nhả trong cùng yêu cầu. Agent từ chối khi người dùng PC đang giữ phím bổ trợ. Lệnh được giới hạn danh sách cho phép và ký HMAC như lệnh nguồn; văn bản không được mã hóa trên đường truyền, chỉ dùng LAN tin cậy.
 
-Build lại Agent bằng Build.ps1 và chạy app mới để sử dụng. EXE/ZIP cũ không tự cập nhật; nút **Hiện QR ghép nối** cũng chỉ có trong bản Agent được build từ mã nguồn mới.
+Touchpad trong mã nguồn hiện tại gửi chuyển động, nhấp trái/phải, kéo và cuộn thật qua Agent. Phiên kéo có heartbeat và thời hạn giữ chuột; Agent nhả chuột khi phiên hết hạn. Cần build/cài lại Agent từ mã nguồn hiện tại để dùng tính năng này.
+
+Build lại Agent bằng `Build.ps1` và chạy app mới để dùng các tính năng điều khiển hiện tại. EXE đã tải không tự cập nhật. Bản phát hành [windows-agent-v1.0.0](https://github.com/Nakai981/wake-on-lan/releases/tag/windows-agent-v1.0.0) đã có nút **Hiện QR ghép nối** và thư viện QR nhúng trong EXE; không cần build lại chỉ để dùng QR.
 
 ### Ghép nối bằng QR
 
@@ -45,11 +47,11 @@ QR được tạo tại máy bằng QRCoder, chứa IP, MAC và mã ghép nối;
 
 Agent không ghi màn hình, âm thanh, phím gõ hoặc lịch sử duyệt web; không có analytics, quảng cáo hoặc máy chủ thu thập dữ liệu. Agent nhận các lệnh đã xác thực từ thiết bị có mã ghép nối trong LAN Wi-Fi/Ethernet. Kiểm tra trạng thái phím bổ trợ chỉ để tránh can thiệp phím người dùng đang giữ khi thực hiện lệnh, không lưu lịch sử phím. Thông tin IP/MAC được dùng để kết nối và ghép nối; mã được lưu bằng DPAPI của Windows. Bạn có thể đổi mã, tắt tự khởi động và thoát Agent. Chỉ dùng trên LAN tin cậy, không chuyển tiếp cổng ra Internet. Tải bản phát hành từ GitHub cần Internet; điều khiển trong LAN không cần cloud. Wake qua Wi-Fi tùy phần cứng; ưu tiên Ethernet cho Wake-on-LAN.
 
-Thay đổi này cần build lại cả app điện thoại và Agent; hot reload không cài được plugin camera mới. Bản EXE/ZIP cũ chưa chứa tính năng QR.
+Nếu build app điện thoại từ mã nguồn sau khi thêm plugin camera, cần build/cài lại app; hot reload không cài được plugin mới. Với Agent, dùng bản phát hành có QR ở trên hoặc build từ mã nguồn.
 
 - Mã ngẫu nhiên 128 bit; không gửi mã qua mạng. Windows bảo vệ mã bằng DPAPI CurrentUser.
 - TCP challenge/response HMAC-SHA256: challenge ngẫu nhiên riêng cho mỗi kết nối, client nonce và phản hồi ký. Mỗi kết nối nhận đúng một lệnh, giới hạn kích thước 512 byte, timeout 4 giây, tối đa 12 kết nối.
-- Hỗ trợ `status`, `sleep`, `shutdown`, `cancel`, `power:<sleep|shutdown>:<seconds>` (1–86400 giây), `key:<mask>:<virtual-key>` và `text:<base64-utf8>` có giới hạn. Hai lệnh `sleep`/`shutdown` cũ vẫn chờ 10 giây. Không có remote shell hay lệnh thực thi tùy ý.
+- Hỗ trợ `status`, `sleep`, `shutdown`, `cancel`, `power:<sleep|shutdown>:<seconds>` (1–86400 giây), `key:<mask>:<virtual-key>`, `text:<base64-utf8>` và các lệnh `mouse:<session>:<action>[:...]` có giới hạn. Hai lệnh `sleep`/`shutdown` cũ vẫn chờ 10 giây. Không có remote shell hay lệnh thực thi tùy ý.
 - Giao thức xác thực nhưng không mã hóa nội dung lệnh; dùng trong LAN tin cậy. Không cung cấp truy cập Internet.
 - Đổi mã từ Agent để thu hồi toàn bộ điện thoại cũ. Tắt máy không dùng `/f` nên ứng dụng chưa lưu có thể chặn.
 - Sleep dùng SetSuspendState(false,false,false), giữ wake events; phụ thuộc phần cứng, chính sách Windows và quyền SeShutdownPrivilege. Lỗi được hiển thị trong Agent.
@@ -62,7 +64,7 @@ Dùng trình biên dịch .NET Framework có sẵn trong Windows. Output: `dist/
 
 ## Gỡ
 
-Chạy `Disable-Startup.cmd`, chọn Thoát Agent, xóa thư mục app. Có thể xóa rule bằng PowerShell admin: `Remove-NetFirewallRule -Name WakeMyPcAgent-Private`. Mã ghép nối lưu ở `%LOCALAPPDATA%\WakeMyPcAgent\pairing.bin`; xóa file này khi Agent đã thoát để tạo mã mới lần sau.
+Bỏ chọn **Chạy nền khi đăng nhập Windows**, chọn **Thoát Agent** ở khay hệ thống, rồi xóa EXE hoặc thư mục riêng của app. Nếu cài từ bộ mã nguồn, có thể chạy `Disable-Startup.cmd` thay cho việc bỏ chọn checkbox. Có thể xóa rule được tạo bằng script firewall qua PowerShell admin: `Remove-NetFirewallRule -Name WakeMyPcAgent-Private`. Mã ghép nối lưu ở `%LOCALAPPDATA%\WakeMyPcAgent\pairing.bin`; xóa file này khi Agent đã thoát để tạo mã mới lần sau.
 
 ## Kiểm thử
 

@@ -1,4 +1,5 @@
 import Flutter
+import AppIntents
 import UIKit
 
 @main
@@ -12,5 +13,9 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    SiriBridge.shared.attach(to: engineBridge.applicationRegistrar.messenger())
+    if #available(iOS 16.0, *) {
+      PcAppShortcuts.updateAppShortcutParameters()
+    }
   }
 }

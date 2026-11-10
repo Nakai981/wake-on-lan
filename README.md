@@ -1,120 +1,306 @@
-﻿# Wake My PC
+# Wake My PC
 
-Bản **React + Vite PWA** độc lập nằm trong [`web-react/`](web-react/README.md).
-Build thành file tĩnh, dùng Node.js LAN bridge cho Wake-on-LAN và Windows Agent.
-Mã Flutter bên dưới được giữ nguyên.
+Bật PC trong mạng nội bộ bằng Wake-on-LAN; Sleep, Shutdown và điều khiển chuột/phím
+qua Windows Agent. Giao diện tiếng Việt, lưu dữ liệu trên thiết bị và không yêu cầu tài khoản.
 
-Ứng dụng Flutter Android/iOS để bật máy tính trong mạng nội bộ, triển khai từ `srs/v1.md`.
+**[Tải Windows Agent](https://github.com/Nakai981/wake-on-lan/releases/latest/download/WakeMyPcAgent.exe)**
+· **[GitHub Releases](https://github.com/Nakai981/wake-on-lan/releases)**
+· **[Hướng dẫn bản web](web-react/README.md)**
 
-## Chức năng
+> **Trạng thái iOS:** đã có mã tích hợp Siri với câu lệnh tiếng Anh cho iOS 16+.
+> Phần Swift, nhận giọng nói và Wake trên iPhone chưa được build/kiểm thử trên thiết bị thật.
+> Cần macOS, Xcode và cấu hình ký ứng dụng để cài bản iOS.
 
-- Giao diện tiếng Việt; thiết lập 5 bước và hướng dẫn BIOS/Windows.
-- Tự nhận IPv4, subnet và broadcast Wi-Fi, không yêu cầu quyền vị trí để đọc SSID.
-- Quét LAN theo nhóm tối đa 12 thiết bị, có tiến độ và dừng quét.
-- Nhập MAC thủ công; thử đọc ARP trên Android nếu hệ điều hành cho phép.
-- Lưu nhiều PC, sửa/xóa có xác nhận, chọn máy mặc định, lưu lịch sử 60 hoạt động.
-- Gửi Magic Packet UDP thật, cấu hình số lần gửi/cổng/thời gian chờ.
-- Theo dõi phản hồi, chẩn đoán và cảnh báo khi subnet thay đổi.
-- Popup **Không gian của bạn → Thời gian chờ tắt / Sleep** lưu khoảng chờ chung cho Shutdown và Sleep, mặc định 10 giây.
-- Không tài khoản, backend, quảng cáo hay tự động bật PC.
+## Mục lục
 
-Trong app Flutter, đặt thời gian từ 1 giây đến 24 giờ rồi bấm **Lưu thời gian chờ**. Những lần sau xác nhận Shutdown/Sleep sẽ dùng giá trị đã lưu, kể cả sau khi mở lại app. Việc lưu cấu hình không gửi lệnh nguồn; lệnh đang chờ giữ nguyên thời gian trước đó. Thời gian tùy chỉnh cần Windows Agent mới được build từ mã nguồn này; Agent thực hiện đếm chờ nên có thể đóng app điện thoại sau khi PC đã nhận lệnh. Agent cần tiếp tục chạy trong lúc chờ. Có thể hủy từ menu PC hoặc khay hệ thống.
+- [Các thành phần](#các-thành-phần)
+- [Tính năng](#tính-năng)
+- [Giao diện](#giao-diện)
+- [Bắt đầu với app Flutter](#bắt-đầu-với-app-flutter)
+- [Windows Agent](#windows-agent)
+- [Siri trên iPhone](#siri-trên-iphone)
+- [Bản web PWA](#bản-web-pwa)
+- [Cách hoạt động](#cách-hoạt-động)
+- [Giới hạn và bảo mật](#giới-hạn-và-bảo-mật)
+- [Phát triển và kiểm thử](#phát-triển-và-kiểm-thử)
+- [Cấu trúc dự án](#cấu-trúc-dự-án)
 
-## Chạy
+## Các thành phần
 
-Đã phát triển với Flutter 3.47.5 / Dart 3.13.4. Cần Android SDK và Java tương thích với Flutter.
+| Thành phần | Nền tảng | Vai trò |
+| --- | --- | --- |
+| [App Flutter](lib/) | Android, iOS | Gửi Wake-on-LAN trực tiếp từ điện thoại; ghép nối và điều khiển PC qua Agent |
+| [Web PWA](web-react/README.md) | Trình duyệt điện thoại, máy tính | Giao diện React + Vite; dùng Node.js LAN bridge để truy cập mạng nội bộ |
+| [Windows Agent](windows-agent/README.md) | Windows 10/11, .NET Framework 4.8 | Nhận lệnh Sleep/Shutdown, chuột và bàn phím đã xác thực; chạy ở khay hệ thống |
+
+**App Flutter không cần LAN bridge.** Bản web cần bridge trên NAS, Raspberry Pi
+hoặc một máy khác luôn bật trong cùng LAN. Nếu bridge nằm trên chính PC cần bật,
+bridge sẽ ngừng hoạt động khi PC Sleep/tắt.
+
+## Tính năng
+
+- Gửi Magic Packet UDP, tùy chỉnh broadcast, cổng, số lần gửi và thời gian theo dõi.
+- Quét LAN với tối đa 12 tác vụ song song; nhập MAC/IP thủ công hoặc thêm PC bằng QR Agent.
+- Lưu nhiều PC, chọn một PC mặc định bằng ngôi sao, chỉnh sửa/xóa thiết bị và lưu 60 hoạt động gần nhất.
+- Theo dõi trạng thái khi app ở foreground, cảnh báo đổi subnet và hướng dẫn chẩn đoán kết nối.
+- Sleep/Shutdown có xác nhận, hỗ trợ hủy lệnh đang chờ qua Windows Agent.
+- Lưu thời gian chờ chung cho Sleep/Shutdown: **1 giây đến 24 giờ**, mặc định **10 giây**.
+- Touchpad, nhấp/kéo/cuộn, Touch Bar, media/âm lượng, phím tắt và bàn phím Unicode qua Agent;
+  có chế độ xem trước khi chưa ghép nối.
+- Siri/App Shortcuts trên iPhone với câu lệnh, lời xác nhận và phản hồi tiếng Anh.
+- Giao diện sáng/tối và font Be Vietnam Pro đóng gói sẵn, không tải font khi chạy.
+
+Đổi thời gian chờ trong **Không gian của bạn → Thời gian chờ tắt / Sleep** rồi lưu.
+Thiết lập được giữ sau khi mở lại app và chỉ áp dụng cho lệnh tiếp theo.
+Thời gian chờ tùy chỉnh cần Agent được build từ mã nguồn hỗ trợ tính năng này.
+
+## Giao diện
+
+<table>
+  <tr>
+    <th>Home khi chưa xác nhận PC hoạt động</th>
+    <th>Home khi PC đang phản hồi</th>
+    <th>Danh sách PC</th>
+  </tr>
+  <tr>
+    <td><img src="docs/home-dark.png" alt="Home với nút bật PC khi chưa nhận được phản hồi" width="240"></td>
+    <td><img src="docs/home-light.png" alt="Home với các nút Sleep và Shutdown khi PC đang hoạt động" width="240"></td>
+    <td><img src="docs/device-list.png" alt="Danh sách PC và ngôi sao chọn máy mặc định" width="240"></td>
+  </tr>
+</table>
+
+Ảnh minh họa được render từ widget với trạng thái giả lập; không phải bằng chứng PC vật lý đã bật/tắt.
+
+## Bắt đầu với app Flutter
+
+### Chuẩn bị
+
+- Flutter SDK có Dart **3.13.4 trở lên**, tương thích với [pubspec.yaml](pubspec.yaml).
+  Các kiểm thử Siri gần nhất chạy với Flutter **3.47.8 / Dart 3.13.7** trên Windows.
+- Android SDK và Java tương thích nếu chạy/build Android.
+- PC hỗ trợ và đã bật Wake-on-LAN trong BIOS/UEFI và cấu hình card mạng Windows.
+- Điện thoại cùng LAN/Wi-Fi với PC; ưu tiên PC dùng Ethernet và thử Wake từ Sleep trước.
+- PC vẫn còn nguồn khi Sleep/tắt. Không cần Windows Agent để gửi Wake-on-LAN.
+
+### Chạy và build Android
 
 ```sh
+git clone https://github.com/Nakai981/wake-on-lan.git
+cd wake-on-lan
 flutter pub get
 flutter run
-flutter analyze
-flutter test
+```
+
+Build APK để thử nghiệm:
+
+```sh
 flutter build apk --debug
 ```
 
-Trên máy Windows hiện tại, Flutter nằm ở `C:\Users\HOANGTHAO\develop\flutter\bin\flutter.bat`.
-APK thử nghiệm: `build/app/outputs/flutter-apk/app-debug.apk`.
+APK nằm tại `build/app/outputs/flutter-apk/app-debug.apk`.
+Bản debug dành cho thử nghiệm; cần cấu hình khóa ký riêng trước khi phát hành lên cửa hàng.
 
-## iOS
+### Thiết lập PC trong app
 
-Mã nguồn iOS và mô tả quyền Mạng cục bộ đã được cấu hình. Cần **macOS, Xcode, thiết bị iPhone và Apple signing team** để build/kiểm thử:
+1. Mở **Thêm máy tính** rồi chọn Quét LAN, Nhập thủ công hoặc Quét QR Windows Agent.
+2. Đối chiếu IP/MAC với `ipconfig /all` trên PC; dùng MAC của card hỗ trợ Wake-on-LAN.
+3. Lưu PC và chọn ngôi sao trong **Danh sách** để đặt làm máy mặc định trên **Home**.
+4. Cho PC Sleep, bấm **Bật PC** và kiểm tra trực tiếp PC có thức dậy hay không.
+5. Ghép Windows Agent nếu muốn Sleep/Shutdown hoặc điều khiển chuột/phím.
+
+Sau khi gửi Wake, app kiểm tra ngay và lặp mỗi 3 giây; khoảng chờ khởi động có thể đặt
+từ 10–30 giây. Có thể xác nhận thủ công **Bỏ qua — PC đã bật**. Không phản hồi được
+hiển thị là chưa xác định, không khẳng định PC đã tắt. Theo dõi cần app tiếp tục chạy;
+hệ điều hành có thể trì hoãn tác vụ khi app ở nền.
+
+### Build iOS trên macOS
+
+Cần macOS, Xcode, iPhone và Apple signing team. App có deployment target iOS 15;
+các hành động Siri yêu cầu **iOS 16+**.
 
 ```sh
 flutter pub get
 flutter build ios --no-codesign
-# Chọn Team trong Xcode, sau đó chạy trên iPhone hoặc build IPA:
+open ios/Runner.xcworkspace
+```
+
+Trong Xcode, chọn signing team cho target **Runner**, cấu hình provisioning rồi chạy trên iPhone.
+Khi đã cấu hình ký ứng dụng, có thể tạo IPA bằng:
+
+```sh
 flutter build ipa
 ```
 
-`ios/Runner/Runner.entitlements` khai báo `com.apple.developer.networking.multicast` vì Wake-on-LAN dùng UDP broadcast. Apple yêu cầu entitlement này cho broadcast/multicast trên iOS; cần được Apple cấp và có trong provisioning profile. Xem [tài liệu Apple](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.multicast). Chưa build/kiểm thử iOS trên Windows; không có IPA trong bản bàn giao này.
+App khai báo quyền **Local Network** và entitlement
+[`com.apple.developer.networking.multicast`](ios/Runner/Runner.entitlements) cho UDP broadcast.
+Cần được Apple cấp entitlement và có trong provisioning profile theo
+[hướng dẫn của Apple](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.multicast).
+Mã nguồn iOS hiện chưa được xác minh bằng build Xcode hoặc thiết bị thật.
 
-## Giới hạn cần biết
+## Windows Agent
 
-- PC cần hỗ trợ và đã bật Wake-on-LAN, còn nguồn, ưu tiên Ethernet. Hãy thử từ Sleep trước.
-- Quét và kiểm tra trạng thái dùng kết nối TCP trên cổng 445, 3389, 22, 80. Thiết bị chặn/không mở các cổng này có thể không xuất hiện; không phản hồi được hiển thị là **Chưa xác định**, không khẳng định đã tắt.
-- Quét tối đa phần /24 chứa điện thoại trên mạng lớn hơn /24. Không tự quét LAN khi mở app; chỉ kiểm tra IP đã lưu.
-- iOS không cung cấp MAC của thiết bị khác qua API công khai; Android mới thường chặn ARP. Nhập MAC là phương án dự phòng có chủ đích. Không suy đoán MAC hoặc tên PC từ địa chỉ IP.
-- Nhận phản hồi xác nhận IP đang truy cập được, không xác minh đó là cùng MAC. Nên đặt DHCP reservation cho PC để IP ổn định.
-- Đổi subnet cần cập nhật PC qua Chi tiết / Quét lại. Hai Wi-Fi khác nhau có cùng subnet không phân biệt được vì app không thu thập SSID/BSSID.
-- Chưa hỗ trợ Wake qua Internet, widget, QR, cloud hoặc backup/export.
-- APK debug dành cho thử nghiệm. Bản phát hành cửa hàng cần khóa ký riêng; cấu hình release mẫu hiện dùng debug key, chưa sẵn sàng đưa lên Play Store.
+1. Tải [WakeMyPcAgent.exe](https://github.com/Nakai981/wake-on-lan/releases/latest/download/WakeMyPcAgent.exe),
+   đặt vào thư mục cố định trên PC và chạy. Bản phát hành chỉ cần một EXE, đã nhúng thư viện QR.
+2. Cho phép Agent qua Windows Firewall trên mạng **Private** tin cậy, TCP **47991**.
+3. Trên Agent, mở **Hiện QR ghép nối**. Trong app, vào **menu PC → Ghép nối Windows Agent →
+   Quét QR từ Windows Agent**, hoặc nhập mã ghép nối thủ công.
+4. Thử Sleep/Shutdown và xác nhận trong app. Agent đếm chờ trên PC sau khi nhận lệnh;
+   có thể đóng app điện thoại, nhưng Agent phải tiếp tục chạy.
+5. Hủy lệnh đang chờ qua thông báo/menu PC, Siri hoặc menu khay hệ thống của Agent.
 
-## Kiến trúc
+Agent có tùy chọn tự chạy khi đăng nhập Windows và không phải Windows Service.
+Bản phát hành [windows-agent-v1.0.0](https://github.com/Nakai981/wake-on-lan/releases/tag/windows-agent-v1.0.0)
+đã có QR. Để dùng touchpad và thời gian chờ tùy chỉnh trong mã nguồn hiện tại,
+build/cài lại Agent từ mã nguồn; EXE đã tải trước đó không tự cập nhật.
 
-- `lib/models.dart`: thiết bị, kiểm tra MAC/IPv4, subnet, Magic Packet.
-- `lib/services.dart`: UDP/TCP, quét giới hạn concurrency, dữ liệu local.
-- `lib/setup.dart`: wizard và sửa thông tin máy.
-- `lib/screens.dart`: home, hoạt động, Wake progress, diagnostics, help.
-- `test/`: kiểm thử gói UDP qua loopback, subnet, dữ liệu và luồng giao diện.
-- `scripts/generate-icons.ps1`: tạo lại biểu tượng hình học cho hai nền tảng.
+Xem [hướng dẫn cài đặt, firewall, ghép nối và gỡ Agent](windows-agent/README.md).
 
-## Kiểm thử trên phần cứng
+## Siri trên iPhone
 
-1. Cài app lên điện thoại cùng LAN với PC có WoL.
-2. Thêm PC bằng MAC Ethernet và IP thật; đối chiếu `ipconfig /all`.
-3. Cho PC Sleep, bấm BẬT PC, xác nhận PC thức dậy bằng quan sát trực tiếp.
-4. Thử firewall chặn kiểm tra: app không được báo chắc chắn PC đã tắt.
-5. Thử tắt Wi-Fi, đổi mạng, từ chối quyền iOS, hủy quét và dừng theo dõi.
-6. Khởi động lại app để kiểm tra dữ liệu lưu bền vững.
+**Trạng thái:** đã thêm mã App Intents/App Shortcuts cho iOS 16+, chưa kiểm thử Swift/Siri
+trên Mac hoặc iPhone. Cần build lại app iOS để có các hành động này.
 
-Gói UDP được kiểm thử bằng socket loopback; điều đó không thay thế việc xác nhận PC vật lý thức dậy.
+Chọn một PC mặc định bằng ngôi sao, cho phép **Local Network**, kết nối cùng LAN/Wi-Fi
+và đặt ngôn ngữ Siri thành **English**. Sleep/Shutdown/hủy cần Windows Agent đã ghép nối.
 
-## Giao diện và font
+| Hành động | Câu nói |
+| --- | --- |
+| Bật PC | “Siri, turn on my PC with Wake My PC.” |
+| Sleep | “Siri, put my PC to sleep with Wake My PC.” |
+| Shutdown | “Siri, shut down my PC with Wake My PC.” |
+| Hủy lệnh nguồn đang chờ | “Siri, cancel my PC power command with Wake My PC.” |
 
-Giao diện dùng nền sáng, thẻ PC xanh đen, điểm nhấn mint/lavender, menu dạng bottom sheet, bộ lọc yêu thích và thanh điều hướng nổi.
+Trong menu app iOS, mở **Siri · English commands** để xem hướng dẫn. Muốn dùng câu ngắn
+hơn, tìm ứng dụng **Wake My PC** trong **Shortcuts**, chọn hành động **Turn on my PC**,
+**Put my PC to sleep**, **Shut down my PC** hoặc **Cancel PC power command** rồi thêm vào
+phím tắt cá nhân. Đặt tên phím tắt, ví dụ “Turn on my PC”, rồi gọi Siri và nói tên đó.
 
-Font **Be Vietnam Pro** được đóng gói trực tiếp trong app (400–900), không tải từ Internet lúc chạy. Font do nhóm tác giả Việt thiết kế và tinh chỉnh dấu tiếng Việt: https://github.com/bettergui/BeVietnamPro . Nguồn Google Fonts và revision được ghi tại `assets/fonts/SOURCE.txt`; giấy phép SIL OFL 1.1 được giữ nguyên tại `assets/fonts/OFL.txt` và đăng ký với Flutter LicenseRegistry.
+- Siri mở app để thực thi và có thể yêu cầu mở khóa iPhone.
+- Sleep/Shutdown yêu cầu xác nhận qua Siri và dùng thời gian chờ đã lưu trong app.
+  Hủy xác nhận không gửi lệnh nguồn.
+- Mỗi xác nhận dùng một lần, hết hạn sau 2 phút. Thay đổi PC mặc định, cấu hình,
+  thời gian chờ hoặc subnet trong lúc xác nhận sẽ khiến yêu cầu bị từ chối.
+- Không tự gửi lại lệnh. Nếu mất phản hồi, kiểm tra hoặc hủy trên PC trước khi thử lại.
+- Wake chỉ xác nhận đã gửi tín hiệu; lệnh hủy chỉ có hiệu lực nếu Agent còn liên lạc được
+  và lệnh nguồn vẫn đang chờ.
 
-## Bật trực tiếp trên Home
+Tham khảo [App Intents](https://developer.apple.com/documentation/appintents),
+[quy tắc cụm gọi App Shortcuts](https://developer.apple.com/videos/play/wwdc2025/244/)
+và [chạy phím tắt với Siri](https://support.apple.com/guide/shortcuts/run-shortcuts-with-siri-apd07c25bb38/ios).
 
-Nhấn BẬT PC để gửi tín hiệu ngay từ thẻ máy. App báo đã gửi, khóa nút của máy đó để tránh gửi lặp và kiểm tra phản hồi sau 10 giây. Có phản hồi: thông báo PC đã khởi động thành công/đang phản hồi. Chưa có phản hồi: tự chuyển tab Trợ giúp với thông tin máy và hướng dẫn; không khẳng định PC chắc chắn đã tắt. Nếu chưa lưu IP, cần bổ sung IP để xác nhận. Kiểm tra này hoạt động khi app còn chạy; hệ điều hành có thể trì hoãn tác vụ khi app ở nền.
+## Bản web PWA
 
-Bảng màu hiện tại: nền xám lạnh, thẻ xanh đen chuyển sắc, xanh điện cho điều hướng, cyan cho nút bật máy.
+Bản web độc lập dùng React + Vite. Node.js vừa phục vụ file tĩnh vừa làm LAN bridge.
+Yêu cầu Node.js **22.12+**; xem [hướng dẫn web](web-react/README.md) cho HTTPS, Docker và triển khai.
 
-## Windows Agent — Sleep và tắt máy
+```sh
+cd web-react
+npm ci
+npm run build
+npm start
+```
 
-Tải [Windows Agent (.exe)](https://github.com/Nakai981/wake-on-lan/releases/latest/download/WakeMyPcAgent.exe) từ GitHub Releases. Bản mới nhúng thư viện QR trong EXE, không cần tải DLL hay ZIP. Trong Flutter: **Thêm máy tính → QR Agent → Chưa có Agent? Trợ giúp** có nút tải, sao chép link cho PC, hướng dẫn Wi-Fi/Ethernet và thông tin quyền riêng tư. Xem thêm [hướng dẫn Agent](windows-agent/README.md).
+Mở `http://localhost:8787` trên máy chạy bridge. Trên PowerShell, dùng `npm.cmd` nếu
+execution policy chặn `npm.ps1`. Cài PWA, dùng camera và ghép Agent trên điện thoại cần
+HTTPS với chứng chỉ được thiết bị tin cậy; làm theo cấu hình trong hướng dẫn web.
 
-Tải bộ `dist/WakeMyPcAgent.zip`, giải nén và chạy `WakeMyPcAgent.exe` trên PC. Xem [hướng dẫn Agent](windows-agent/README.md) để mở firewall Private TCP 47991 và ghép nối.
+## Cách hoạt động
 
-Trong app, mở menu của PC → **Ghép nối Windows Agent**. Sau khi xác thực mã, Home hiển thị **Sleep** và **Tắt máy**. Cả hai có xác nhận trước khi gửi; PC chờ 10 giây và có thể hủy qua thông báo trên điện thoại hoặc biểu tượng tray Windows. Agent dùng DPAPI, điện thoại dùng secure storage; không lưu mã vào danh sách PC.
+```mermaid
+flowchart LR
+    Siri["Siri / Shortcuts"] -->|"App Intents, iOS 16+"| App["App Flutter"]
+    App -->|"UDP Magic Packet"| PC["PC hỗ trợ Wake-on-LAN"]
+    App -->|"TCP 47991, xác thực HMAC"| Agent["Windows Agent"]
+    Web["React PWA"] -->|"HTTPS / WebSocket"| Bridge["Node.js LAN bridge"]
+    Bridge -->|"UDP Magic Packet"| PC
+    Bridge -->|"Chuyển tiếp TCP 47991"| Agent
+```
 
-Agent có tùy chọn tự chạy khi đăng nhập Windows. Bản này không phải Windows Service. Lệnh nguồn đã được kiểm thử bằng chế độ mô phỏng qua TCP thật; không thực hiện tắt/Sleep máy phát triển trong quá trình kiểm thử.
+App lưu danh sách/lịch sử cục bộ; mã ghép nối nằm trong secure storage trên điện thoại.
+Siri dùng cùng luồng mạng, lịch sử và trạng thái Home với nút bấm, không sao chép mã ghép nối sang Shortcuts.
+Agent bảo vệ mã bằng Windows DPAPI. Bản web lưu dữ liệu trong trình duyệt và có cơ chế
+lưu mã ghép nối riêng được mô tả trong [hướng dẫn PWA](web-react/README.md#dữ-liệu-và-offline).
 
-## Home tối giản theo máy mặc định
+## Giới hạn và bảo mật
 
-### Giao diện Điều khiển (xem trước)
+- Chỉ dùng trong LAN tin cậy; chưa hỗ trợ Wake qua Internet, cloud, widget hoặc backup/export.
+  Không chuyển tiếp cổng Agent/bridge ra Internet.
+- HMAC xác thực lệnh Agent nhưng không mã hóa nội dung truyền qua LAN.
+  QR chứa mã ghép nối; không chia sẻ ảnh QR. Đổi mã trên Agent để thu hồi thiết bị đã ghép.
+- App kiểm tra kết nối TCP trên các cổng 47991, 445, 3389, 22 và 80.
+  Thiết bị không phản hồi có thể đang chặn kết nối; app không thể kết luận chắc chắn đã tắt.
+- Quét tối đa phần /24 chứa điện thoại khi mạng lớn hơn /24. iOS không cung cấp MAC của thiết bị
+  khác qua API công khai; Android có thể chặn ARP. Nhập MAC thủ công khi cần.
+- Phản hồi tại IP không xác minh IP đó vẫn thuộc cùng MAC. Nên đặt DHCP reservation cho PC.
+  Đổi subnet cần cập nhật cấu hình; hai Wi-Fi có cùng subnet không được phân biệt qua SSID/BSSID.
+- Điều khiển chuột/phím chỉ áp dụng phiên desktop đã đăng nhập; không điều khiển UAC,
+  màn hình đăng nhập hoặc ứng dụng có quyền cao hơn Agent.
+- `accepted` từ Agent chỉ xác nhận đã lên lịch. PC vẫn có thể chặn/hủy Sleep hoặc Shutdown.
 
-Mở **Điều khiển · Xem trước** trên Home hoặc **Điều khiển** trong menu. Có ba tab: Touchpad (con trỏ mẫu, nhấp/kéo và tốc độ), Touch Bar (media, âm lượng, phím tắt, F1–F12), Bàn phím (nhập tiếng Việt, phím bổ trợ và touchpad nhỏ). Các thao tác chỉ cập nhật giao diện và phản hồi rung, chưa gửi lệnh đến Windows Agent. Không cần PC online để thử giao diện.
+## Phát triển và kiểm thử
 
-### Trạng thái máy
+### App Flutter
 
-Giao diện sáng/tối hiện dùng chung cho toàn app. Công tắc mặt trời/mặt trăng trên thanh trên cùng đổi màu Home, Danh sách, Trợ giúp và các màn mở tiếp theo. Đổi giao diện không thay đổi trạng thái PC; nút Điều khiển trên Home vẫn chỉ hiện khi máy được xác nhận đã bật. Lựa chọn màu được giữ trong phiên app.
+```sh
+flutter analyze
+flutter test
+```
 
-- Chọn duy nhất một ngôi sao tại tab **Danh sách** để máy xuất hiện trên **Home**. Chưa chọn máy thì Home hướng dẫn chọn; không tự lấy máy khác thay thế.
-- Chưa có phản hồi: nền đen, nút bật tròn. Không phản hồi không đồng nghĩa chắc chắn PC đã tắt.
-- Đã xác nhận PC hoạt động: nền sáng, hai nút Sleep và Shutdown. Nếu chưa ghép Agent, các nút dẫn tới ghép nối.
-- App kiểm tra trạng thái mỗi 15 giây khi ở foreground và khi quay lại app. Sau lệnh Wake vẫn kiểm tra sau khoảng 10 giây.
-- Nếu kiểm tra sau Wake chưa nhận phản hồi, popup hỏi **PC đã bật chưa?**: **Đã bật** chuyển Home sang nền sáng; **Chưa bật** mở Trợ giúp. Xác nhận thủ công có nhãn riêng, giữ trong phiên app cho đến khi có phản hồi thật hoặc Agent nhận lệnh Sleep/Shutdown; không bị xóa bởi lần kiểm tra không phản hồi tiếp theo.
-- Tab Hoạt động được thay bằng Danh sách; lịch sử truy cập từ menu.
-- Ảnh `docs/home-dark.png`, `docs/home-light.png`, `docs/device-list.png` được render từ widget thật với trạng thái giả lập để kiểm tra bố cục, không phải bằng chứng PC vật lý bật/tắt.
+Chạy riêng các kiểm thử Siri và lệnh nguồn:
+
+```sh
+flutter test test/siri_shortcuts_test.dart test/siri_home_test.dart test/power_ui_test.dart test/power_delay_test.dart
+```
+
+**Kết quả kiểm tra ngày 10/11/2026:** 29 kiểm thử liên quan Siri/lệnh nguồn đạt;
+analyzer không báo vấn đề trong các tệp tích hợp Siri đã thay đổi.
+Toàn bộ bộ kiểm thử có 59 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
+Siri xác nhận cả 10 lỗi đã có sẵn trong các luồng QR/onboarding, Home và điều khiển.
+Các kiểm thử Siri dùng mô phỏng kênh native/mạng/Agent, chưa xác minh nhận giọng nói hoặc biên dịch Swift.
+
+### Web và Windows Agent
+
+```sh
+cd web-react
+npm test
+npm run build
+```
+
+Từ thư mục gốc trên Windows, build và kiểm thử Agent:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows-agent/Build.ps1
+powershell -ExecutionPolicy Bypass -File windows-agent/Test.ps1
+```
+
+Agent xuất ra `dist/WakeMyPcAgent/`. Kiểm thử giao thức dùng chế độ mô phỏng,
+không thực hiện Sleep/Shutdown thật.
+
+### Kiểm tra trên thiết bị thật
+
+1. Wake PC từ Sleep; đối chiếu MAC Ethernet và quan sát PC trực tiếp.
+2. Thử tắt Wi-Fi, từ chối Local Network, đổi subnet và firewall chặn phản hồi.
+3. Ghép Agent, thử Sleep/Shutdown và hủy trong khoảng chờ; đối chiếu thời gian trên PC.
+4. Trên iPhone, thử bốn hành động trong Shortcuts rồi gọi bằng giọng nói khi app đang mở/đã đóng.
+5. Hủy xác nhận Siri, thử khi chưa có PC mặc định/chưa ghép Agent và đổi cấu hình lúc xác nhận:
+   không được tự chọn PC khác hoặc gửi lại lệnh.
+
+Kiểm thử UDP loopback và giao diện không thay thế việc kiểm chứng Wake trên phần cứng.
+
+## Cấu trúc dự án
+
+```text
+lib/                 App Flutter, lưu trữ, Wake-on-LAN và giao thức Agent
+ios/Runner/          Mã iOS, App Intents và cầu nối Siri ↔ Flutter
+android/             Cấu hình và tích hợp Android
+test/                Kiểm thử Flutter, mạng và giao thức
+windows-agent/       Agent Windows, script build/cài đặt/kiểm thử
+web-react/           React PWA và Node.js LAN bridge
+assets/fonts/        Font Be Vietnam Pro và giấy phép OFL
+docs/                Ảnh minh họa và ghi nhận kiểm thử trước đây
+srs/                 Tài liệu yêu cầu
+```
+
+Font [Be Vietnam Pro](https://github.com/bettergui/BeVietnamPro) được đóng gói trong app
+theo [SIL Open Font License 1.1](assets/fonts/OFL.txt).
+Nguồn font được ghi trong [SOURCE.txt](assets/fonts/SOURCE.txt).

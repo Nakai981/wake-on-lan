@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -16,6 +17,7 @@ import 'wake_console.dart';
 import 'agent_help.dart';
 import 'power_delay.dart';
 import 'power_delay_settings.dart';
+import 'siri_shortcuts.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -47,6 +49,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, WakeSession> wakeSessions = {};
   final Map<String, Timer> powerTimers = {};
   final Set<String> cancelledPower = {};
+  SiriShortcuts? siri;
+
+  Future<String> executeSiri(String action, Pc pc, int delay) {
+    switch (action) {
+      case 'wake':
+        return wake(pc);
+      case 'sleep':
+      case 'shutdown':
+        return power(pc, action, confirmedBySiri: true, siriDelay: delay);
+      case 'cancel':
+        return cancelPower(pc);
+      default:
+        throw PlatformException(
+          code: 'invalid_action',
+          message: 'This Siri action is not supported.',
+        );
+    }
+  }
+
+  Future<void> connectSiri() async {
+    try {
+      await siri?.connect();
+    } on MissingPluginException {
+      // Allows Flutter-only runners without the native iOS integration.
+    } on PlatformException {
+      debugPrint('Siri channel could not connect.');
+    }
+  }
+
+  Future<void> disconnectSiri() async {
+    try {
+      await siri?.disconnect();
+    } on MissingPluginException {
+      // No native channel in Flutter-only runners.
+    } on PlatformException {
+      debugPrint('Siri channel could not disconnect.');
+    }
+  }
 
   Future<bool> pcReachable(Pc pc) async {
     if (!pc.agentPaired) return widget.net.reachable(pc.ip);
@@ -85,47 +125,65 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> power(Pc pc, String command) async {
-    if (powerBusy.contains(pc.id) || waking.contains(pc.id)) return;
+  Future<String> power(
+    Pc pc,
+    String command, {
+    bool confirmedBySiri = false,
+    int? siriDelay,
+  }) async {
+    if (powerBusy.contains(pc.id) || waking.contains(pc.id)) {
+      return 'A command for this PC is already in progress.';
+    }
     if (!pc.agentPaired) {
+      if (confirmedBySiri) return 'Pair this PC with Windows Agent first.';
       await pairAgent(pc);
-      if (!mounted) return;
+      if (!mounted) return 'The request was cancelled.';
       final saved = pcs.where((p) => p.id == pc.id);
-      if (saved.isEmpty || !saved.first.agentPaired) return;
+      if (saved.isEmpty || !saved.first.agentPaired) {
+        return 'Pair this PC with Windows Agent first.';
+      }
       pc = saved.first;
     }
-    if (!mounted) return;
+    if (!mounted) return 'The request was cancelled.';
     final label = command == 'sleep' ? 'Sleep' : 'Tắt máy';
-    final delay = widget.store.powerDelaySeconds;
+    final delay = siriDelay ?? widget.store.powerDelaySeconds;
     final delayLabel = powerDelayLabel(delay);
     final checkDelay = delay + 10;
     final checkLabel = powerDelayLabel(checkDelay);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('$label ${pc.name}?'),
-        content: Text(
-          command == 'shutdown'
-              ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ $delayLabel để bạn có thể hủy.'
-              : 'PC sẽ chuyển sang Sleep sau $delayLabel. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Hủy'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(label),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || confirmed != true) return;
+    final confirmed =
+        confirmedBySiri ||
+        await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text('$label ${pc.name}?'),
+                content: Text(
+                  command == 'shutdown'
+                      ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ $delayLabel để bạn có thể hủy.'
+                      : 'PC sẽ chuyển sang Sleep sau $delayLabel. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text('Hủy'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: Text(label),
+                  ),
+                ],
+              ),
+            ) ==
+            true;
+    if (!mounted || !confirmed) return 'The request was cancelled.';
+    if (powerBusy.contains(pc.id) || waking.contains(pc.id)) {
+      return 'A command for this PC is already in progress.';
+    }
     setState(() => powerBusy.add(pc.id));
     try {
       final result = await agent.command(pc, powerDelayCommand(command, delay));
-      if (!mounted) return;
+      if (!mounted) {
+        return 'The request may have reached your PC. Check your PC before trying again.';
+      }
       if (result != 'accepted') {
         message(
           context,
@@ -133,7 +191,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ? 'PC đang có một lệnh chờ. Hủy lệnh trước khi gửi lại.'
               : 'Agent chưa nhận lệnh.',
         );
-        return;
+        return result == 'busy'
+            ? 'Your PC already has a pending power command. Cancel it before sending another.'
+            : result == 'simulated'
+            ? 'Windows Agent is in simulation mode. No power action was scheduled.'
+            : 'Windows Agent did not accept the command. Check or update Windows Agent.';
       }
       setState(() {
         cancelledPower.remove(pc.id);
@@ -181,6 +243,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               : 'PC chưa phản hồi sau $checkLabel; chưa xác nhận chắc chắn đã Sleep/tắt.',
         );
       });
+      return command == 'sleep'
+          ? 'Your PC accepted the sleep command. It is scheduled in $delay seconds.'
+          : 'Your PC accepted the shutdown command. It is scheduled in $delay seconds.';
     } catch (_) {
       if (mounted) {
         message(
@@ -190,13 +255,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               : 'Chưa xác nhận được lệnh. Cập nhật Windows Agent để dùng thời gian chờ tùy chỉnh, kiểm tra IP và kết nối. Kiểm tra hoặc hủy trên PC nếu lệnh đã được gửi.',
         );
       }
+      return 'The command could not be confirmed. It may have reached your PC. Check Windows Agent before trying again.';
     } finally {
-      if (mounted && !powerTimers.containsKey(pc.id))
+      if (mounted && !powerTimers.containsKey(pc.id)) {
         setState(() => powerBusy.remove(pc.id));
+      }
     }
   }
 
-  Future<void> cancelPower(Pc pc) async {
+  Future<String> cancelPower(Pc pc) async {
+    if (!mounted) return 'The request was cancelled.';
     try {
       final result = await agent.command(pc, 'cancel');
       if (result == 'cancelled') {
@@ -213,6 +281,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       }
       if (mounted) refresh();
+      return result == 'cancelled'
+          ? 'The pending power command was cancelled.'
+          : 'No cancellation was confirmed. Check Windows Agent on your PC.';
     } catch (_) {
       if (mounted) {
         message(
@@ -220,6 +291,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           'Không liên lạc được với Agent để hủy. Lệnh có thể đã thực hiện.',
         );
       }
+      return 'Windows Agent could not be reached. The power command may already have run.';
     }
   }
 
@@ -237,6 +309,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (_) {
       storageError = true;
     }
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      siri = SiriShortcuts(
+        store: widget.store,
+        network: widget.net,
+        agent: agent,
+        devices: () => pcs,
+        isBusy: (pc) => waking.contains(pc.id) || powerBusy.contains(pc.id),
+        execute: executeSiri,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(connectSiri());
+      });
+    }
     refresh();
     statusTimer = Timer.periodic(Duration(seconds: 15), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
@@ -247,6 +332,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(disconnectSiri());
     statusTimer?.cancel();
     for (final timer in powerTimers.values) {
       timer.cancel();
@@ -278,8 +364,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (waking.contains(pc.id) ||
             powerBusy.contains(pc.id) ||
             manuallyOffline.contains(pc.id) ||
-            manuallyOnline.contains(pc.id))
+            manuallyOnline.contains(pc.id)) {
           continue;
+        }
         setState(() => statuses[pc.id] = 'Đang kiểm tra…');
         final online =
             current != null &&
@@ -394,8 +481,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> wake(Pc pc) async {
-    if (waking.contains(pc.id) || powerBusy.contains(pc.id)) return;
+  Future<String> wake(Pc pc) async {
+    if (waking.contains(pc.id) || powerBusy.contains(pc.id)) {
+      return 'A command for this PC is already in progress.';
+    }
     final session = WakeSession(pc);
     wakeSessions[pc.id] = session;
     setState(() {
@@ -417,13 +506,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       session.log('Đọc Wi-Fi của điện thoại…');
       final current = await widget.net.network();
-      if (!mounted || session.stopped) return;
-      if (current == null)
+      if (!mounted || session.stopped) return 'The wake request was cancelled.';
+      if (current == null) {
         throw StateError('Kết nối Wi-Fi cùng mạng với PC để bật máy.');
-      if (pc.network.isNotEmpty && pc.network != current.key)
+      }
+      if (pc.network.isNotEmpty && pc.network != current.key) {
         throw StateError(
           'Subnet đã thay đổi. Sửa máy hoặc quét lại trước khi Wake.',
         );
+      }
       session.log(
         'Wi-Fi ${current.ip} / ${current.mask} · broadcast ${current.broadcast}',
       );
@@ -431,7 +522,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'Yêu cầu UDP ${pc.broadcast.isEmpty ? current.broadcast : pc.broadcast}:${pc.port} · MAC ${pc.mac} · ${pc.retries} lần',
       );
       await widget.net.wakeWithLog(pc, current, session.log);
-      if (!mounted || session.stopped) return;
+      if (!mounted || session.stopped) {
+        return 'The wake signal was sent. Your PC has not been confirmed online.';
+      }
       session.sent = true;
       session.readyAt = DateTime.now().add(Duration(seconds: pc.startupDelay));
       session.update('Đã gửi · Chờ PC khởi động');
@@ -451,8 +544,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } catch (_) {
         /* UDP succeeded even when local history could not be saved. */
       }
+      return 'The wake signal was sent to your PC. This does not confirm that it is online yet.';
     } catch (e) {
-      if (!mounted || session.stopped) return;
+      if (!mounted || session.stopped) return 'The wake request was cancelled.';
       session.log('Lỗi: $e');
       session.update('Chưa xác nhận gửi thành công');
       session.stopped = true;
@@ -460,6 +554,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         waking.remove(pc.id);
         statuses[pc.id] = 'Chưa gửi được tín hiệu';
       });
+      return 'The wake signal could not be confirmed. Check Wi-Fi, Local Network permission and this PC\'s settings in Wake My PC.';
     }
   }
 
@@ -468,8 +563,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!mounted ||
         session == null ||
         session.stopped ||
-        !pcs.any((p) => p.id == pc.id))
+        !pcs.any((p) => p.id == pc.id)) {
       return;
+    }
     var online = false;
     try {
       final current = await widget.net.network();
@@ -584,6 +680,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ),
   );
 
+  Future<void> showSiriHelp() => showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Siri · English commands'),
+      scrollable: true,
+      content: const SelectableText(
+        'Requires iOS 16 or later and Siri set to English.\n\n'
+        'Select one default PC using the star in the device list. '
+        'Connect to the same Wi-Fi and allow Local Network access.\n\n'
+        'Say:\n'
+        '“Siri, turn on my PC with Wake My PC.”\n\n'
+        '“Siri, put my PC to sleep with Wake My PC.”\n\n'
+        '“Siri, shut down my PC with Wake My PC.”\n\n'
+        '“Siri, cancel my PC power command with Wake My PC.”\n\n'
+        'Siri opens the app and may ask you to unlock your iPhone. '
+        'Sleep and shutdown require your confirmation and a paired Windows Agent. '
+        'They use your saved power delay. Cancellation only works while the command is still pending.\n\n'
+        'For shorter phrases, find the Wake My PC actions in Shortcuts and create '
+        'personal shortcuts named “Turn on my PC”, “Put my PC to sleep” or “Shut down my PC”.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Done'),
+        ),
+      ],
+    ),
+  );
+
   Future<void> openMenu() async {
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -626,6 +751,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'Điều khiển',
                 'Touchpad · Touch Bar · Bàn phím',
               ),
+              if (siri != null)
+                menuRow(
+                  ctx,
+                  'siri',
+                  Icons.mic_none_rounded,
+                  'Siri · English commands',
+                  'Turn on · Sleep · Shut down · Cancel',
+                ),
               menuRow(
                 ctx,
                 'add',
@@ -722,6 +855,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       case 'controls':
         await openControls();
+      case 'siri':
+        await showSiriHelp();
       case 'add':
         await edit();
       case 'devices':
