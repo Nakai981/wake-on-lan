@@ -25,6 +25,7 @@ class SiriShortcuts {
   final bool Function(Pc pc) isBusy;
   final SiriExecutor execute;
   final DateTime Function() now;
+  final Future<void> Function()? refresh;
   _SiriTicket? _ticket;
   int _sequence = 0;
   bool _disposed = false;
@@ -36,6 +37,7 @@ class SiriShortcuts {
     required this.devices,
     required this.isBusy,
     required this.execute,
+    this.refresh,
     DateTime Function()? now,
   }) : now = now ?? DateTime.now;
 
@@ -72,6 +74,12 @@ class SiriShortcuts {
       }
       final args = call.arguments;
       if (args is! Map) _fail('invalid_request', 'Invalid Siri request.');
+      if (call.method == 'prepare' || call.method == 'execute') {
+        await refresh?.call();
+        if (_disposed) {
+          _fail('not_ready', 'Open Wake My PC, then ask Siri again.');
+        }
+      }
       if (call.method == 'discard') {
         if (_ticket?.id == args['ticket']) _ticket = null;
         return null;
@@ -125,6 +133,7 @@ class SiriShortcuts {
           );
         }
         await _checkNetwork(pc, ticket.action);
+        await refresh?.call();
         // Network permission/read can yield while the user edits or closes Home.
         if (_disposed) {
           _fail('not_ready', 'Open Wake My PC, then ask Siri again.');

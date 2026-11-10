@@ -281,9 +281,10 @@ void main() {
       final pending = Completer<Lan?>();
       net.readNetwork = () => pending.future;
       final execution = run(ticket);
+      final rejected = expectLater(execution, failsWith('not_ready'));
       await siri.disconnect();
       pending.complete(net.lan);
-      await expectLater(execution, failsWith('not_ready'));
+      await rejected;
       expect(calls, ['ready', 'notReady']);
       expect(sent, isEmpty);
     },

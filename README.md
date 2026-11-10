@@ -8,7 +8,8 @@ qua Windows Agent. Giao diện tiếng Việt, lưu dữ liệu trên thiết b�
 · **[Hướng dẫn bản web](web-react/README.md)**
 
 > **Trạng thái iOS:** đã có mã tích hợp Siri với câu lệnh tiếng Anh cho iOS 16+.
-> Phần Swift, nhận giọng nói và Wake trên iPhone chưa được build/kiểm thử trên thiết bị thật.
+> Mã mới dùng phiên xử lý nền để không mở Home khi gọi Siri. Phần khởi động nền Swift/iOS
+> cần được build và kiểm thử thêm trên iPhone thật.
 > Cần macOS, Xcode và cấu hình ký ứng dụng để cài bản iOS.
 
 ## Mục lục
@@ -160,8 +161,9 @@ Xem [hướng dẫn cài đặt, firewall, ghép nối và gỡ Agent](windows-a
 
 ## Siri trên iPhone
 
-**Trạng thái:** đã thêm mã App Intents/App Shortcuts cho iOS 16+, chưa kiểm thử Swift/Siri
-trên Mac hoặc iPhone. Cần build lại app iOS để có các hành động này.
+**Trạng thái:** đã thêm mã App Intents/App Shortcuts cho iOS 16+ và phiên xử lý nền.
+Phần khởi động nền Swift/iOS mới chưa được biên dịch/kiểm thử trên Mac và iPhone trong môi trường hiện tại.
+Cần build lại app iOS để nhận thay đổi; các định danh hành động đã tạo được giữ nguyên.
 
 Chọn một PC mặc định bằng ngôi sao, cho phép **Local Network**, kết nối cùng LAN/Wi-Fi
 và đặt ngôn ngữ Siri thành **English**. Sleep/Shutdown/hủy cần Windows Agent đã ghép nối.
@@ -223,7 +225,11 @@ App không thể tự chấp nhận hoặc tắt hộp thoại **Allow/Allow Acc
 Nếu chỉ có nút **Allow**, vẫn cần người dùng cấp quyền theo hộp thoại thực tế; không có thiết lập
 trong app để bỏ qua nó. Quyền này khác với xác nhận Sleep/Shutdown của app và yêu cầu mở khóa iPhone.
 
-- Siri mở app để thực thi và có thể yêu cầu mở khóa iPhone.
+- Siri thực thi bằng một Flutter engine không gắn màn hình, qua entrypoint `siriBackgroundMain`.
+  `openAppWhenRun` đặt `false`; lệnh không chờ Home và không gọi `runApp`.
+  Engine được dừng sau khi hoàn tất, lỗi hoặc hủy; không chạy nền liên tục.
+- Lần đầu vẫn cần mở app để chọn PC mặc định, cho phép Local Network, thử Wake và ghép Agent.
+  iOS có thể yêu cầu mở khóa iPhone theo chính sách xác thực; quyền chưa được cấp phải xử lý trong app.
 - Sleep/Shutdown yêu cầu xác nhận qua Siri và dùng thời gian chờ đã lưu trong app.
   Hủy xác nhận không gửi lệnh nguồn.
 - Mỗi xác nhận dùng một lần, hết hạn sau 2 phút. Thay đổi PC mặc định, cấu hình,
@@ -231,6 +237,13 @@ trong app để bỏ qua nó. Quyền này khác với xác nhận Sleep/Shutdow
 - Không tự gửi lại lệnh. Nếu mất phản hồi, kiểm tra hoặc hủy trên PC trước khi thử lại.
 - Wake chỉ xác nhận đã gửi tín hiệu; lệnh hủy chỉ có hiệu lực nếu Agent còn liên lạc được
   và lệnh nguồn vẫn đang chờ.
+
+Nếu phím tắt cá nhân có bước **Open App / Mở ứng dụng**, bỏ bước đó và chỉ giữ hành động của Wake My PC.
+Khi quay lại app, Home đọc lại dữ liệu lưu trữ, cập nhật lịch sử và kiểm tra trạng thái PC;
+phiên Siri nền không tạo các màn theo dõi hoặc popup của Home.
+
+Thiết kế nền dựa trên [runtime App Intents của Apple](https://developer.apple.com/documentation/appintents/configuring-the-runtime-behavior-of-your-app-intents)
+và [FlutterEngine headless](https://api.flutter.dev/ios-embedder/interface_flutter_engine.html).
 
 Tham khảo [App Intents](https://developer.apple.com/documentation/appintents),
 [quy tắc cụm gọi App Shortcuts](https://developer.apple.com/videos/play/wwdc2025/244/)
@@ -256,16 +269,19 @@ HTTPS với chứng chỉ được thiết bị tin cậy; làm theo cấu hình
 
 ```mermaid
 flowchart LR
-    Siri["Siri / Shortcuts"] -->|"App Intents, iOS 16+"| App["App Flutter"]
-    App -->|"UDP Magic Packet"| PC["PC hỗ trợ Wake-on-LAN"]
-    App -->|"TCP 47991, xác thực HMAC"| Agent["Windows Agent"]
+    Siri["Siri / Shortcuts"] -->|"App Intents, iOS 16+"| Background["Phiên Siri nền"]
+    Background -->|"UDP Magic Packet"| PC["PC hỗ trợ Wake-on-LAN"]
+    Background -->|"TCP 47991, xác thực HMAC"| Agent["Windows Agent"]
+    App["App Flutter"] -->|"UDP Magic Packet"| PC
+    App -->|"TCP 47991, xác thực HMAC"| Agent
     Web["React PWA"] -->|"HTTPS / WebSocket"| Bridge["Node.js LAN bridge"]
     Bridge -->|"UDP Magic Packet"| PC
     Bridge -->|"Chuyển tiếp TCP 47991"| Agent
 ```
 
 App lưu danh sách/lịch sử cục bộ; mã ghép nối nằm trong secure storage trên điện thoại.
-Siri dùng cùng luồng mạng, lịch sử và trạng thái Home với nút bấm, không sao chép mã ghép nối sang Shortcuts.
+Siri dùng lại `NetworkService` và `AgentClient` trong phiên nền riêng, lưu lịch sử và lần Wake
+để Home cập nhật khi app trở lại foreground. Mã ghép nối không được sao chép sang Swift hoặc Shortcuts.
 Agent bảo vệ mã bằng Windows DPAPI. Bản web lưu dữ liệu trong trình duyệt và có cơ chế
 lưu mã ghép nối riêng được mô tả trong [hướng dẫn PWA](web-react/README.md#dữ-liệu-và-offline).
 
@@ -297,15 +313,18 @@ flutter test
 Chạy riêng các kiểm thử Siri và lệnh nguồn:
 
 ```sh
-flutter test test/siri_shortcuts_test.dart test/siri_home_test.dart test/power_ui_test.dart test/power_delay_test.dart
+flutter test test/siri_background_test.dart test/siri_shortcuts_test.dart test/siri_home_test.dart test/power_ui_test.dart test/power_delay_test.dart test/help_layout_test.dart test/navigation_test.dart test/app_theme_test.dart
 ```
 
-**Kết quả kiểm tra ngày 10/11/2026:** 38 kiểm thử liên quan Siri, lệnh nguồn, điều hướng
+**Kết quả kiểm tra ngày 10/11/2026:** 47 kiểm thử liên quan Siri, lệnh nguồn, điều hướng
 và giao diện Trợ giúp đạt. Có kiểm tra menu ở chiều rộng 320/430 pixel, chữ phóng to 160%,
 hai giao diện sáng/tối và độ tương phản chữ câu lệnh. Analyzer không báo vấn đề trong các tệp đã thay đổi.
-Lần chạy toàn bộ có 65 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
+Các kiểm thử Dart nền không dựng Home, có kiểm tra UDP thật qua loopback, thay đổi cấu hình
+trong lúc xác nhận, đồng bộ Home khi quay lại app và không tự gửi lại lệnh khi mất phản hồi.
+Lần chạy toàn bộ có 74 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
 Siri xác nhận cả 10 lỗi đã có sẵn trong các luồng QR/onboarding, Home và điều khiển.
-Các kiểm thử Siri dùng mô phỏng kênh native/mạng/Agent, chưa xác minh nhận giọng nói hoặc biên dịch Swift.
+Các kiểm thử dùng mô phỏng kênh native/Agent và UDP loopback; chưa xác minh khởi động engine
+nền trên iOS, nhận giọng nói hoặc biên dịch Swift.
 
 ### Web và Windows Agent
 
@@ -330,7 +349,9 @@ không thực hiện Sleep/Shutdown thật.
 1. Wake PC từ Sleep; đối chiếu MAC Ethernet và quan sát PC trực tiếp.
 2. Thử tắt Wi-Fi, từ chối Local Network, đổi subnet và firewall chặn phản hồi.
 3. Ghép Agent, thử Sleep/Shutdown và hủy trong khoảng chờ; đối chiếu thời gian trên PC.
-4. Trên iPhone, thử bốn hành động trong Shortcuts rồi gọi bằng giọng nói khi app đang mở/đã đóng.
+4. Trên iPhone, thử bốn hành động khi app đang mở, đã đưa về nền và sau khi tiến trình đã dừng.
+   Dùng bản Release/Profile khi kiểm thử khởi động nền. App không được tự chuyển lên Home;
+   xác nhận qua Siri, rồi kiểm tra lệnh trên PC và lịch sử sau khi mở lại app.
 5. Hủy xác nhận Siri, thử khi chưa có PC mặc định/chưa ghép Agent và đổi cấu hình lúc xác nhận:
    không được tự chọn PC khác hoặc gửi lại lệnh.
 

@@ -16,7 +16,6 @@ import 'power_confirmation_effect.dart';
 import 'wake_console.dart';
 import 'power_delay.dart';
 import 'power_delay_settings.dart';
-import 'siri_shortcuts.dart';
 import 'help.dart';
 import 'workspace.dart';
 
@@ -50,45 +49,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, WakeSession> wakeSessions = {};
   final Map<String, Timer> powerTimers = {};
   final Set<String> cancelledPower = {};
-  SiriShortcuts? siri;
+  bool get supportsSiri =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  int siriActivityVersion = 0;
+  bool reloadingStore = false;
   bool showSiriGuide = false;
-
-  Future<String> executeSiri(String action, Pc pc, int delay) {
-    switch (action) {
-      case 'wake':
-        return wake(pc);
-      case 'sleep':
-      case 'shutdown':
-        return power(pc, action, confirmedBySiri: true, siriDelay: delay);
-      case 'cancel':
-        return cancelPower(pc);
-      default:
-        throw PlatformException(
-          code: 'invalid_action',
-          message: 'This Siri action is not supported.',
-        );
-    }
-  }
-
-  Future<void> connectSiri() async {
-    try {
-      await siri?.connect();
-    } on MissingPluginException {
-      // Allows Flutter-only runners without the native iOS integration.
-    } on PlatformException {
-      debugPrint('Siri channel could not connect.');
-    }
-  }
-
-  Future<void> disconnectSiri() async {
-    try {
-      await siri?.disconnect();
-    } on MissingPluginException {
-      // No native channel in Flutter-only runners.
-    } on PlatformException {
-      debugPrint('Siri channel could not disconnect.');
-    }
-  }
 
   Future<bool> pcReachable(Pc pc) async {
     if (!pc.agentPaired) return widget.net.reachable(pc.ip);
@@ -127,17 +92,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<String> power(
-    Pc pc,
-    String command, {
-    bool confirmedBySiri = false,
-    int? siriDelay,
-  }) async {
+  Future<String> power(Pc pc, String command) async {
     if (powerBusy.contains(pc.id) || waking.contains(pc.id)) {
       return 'A command for this PC is already in progress.';
     }
     if (!pc.agentPaired) {
-      if (confirmedBySiri) return 'Pair this PC with Windows Agent first.';
       await pairAgent(pc);
       if (!mounted) return 'The request was cancelled.';
       final saved = pcs.where((p) => p.id == pc.id);
@@ -148,34 +107,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     if (!mounted) return 'The request was cancelled.';
     final label = command == 'sleep' ? 'Sleep' : 'Tắt máy';
-    final delay = siriDelay ?? widget.store.powerDelaySeconds;
+    final delay = widget.store.powerDelaySeconds;
     final delayLabel = powerDelayLabel(delay);
     final checkDelay = delay + 10;
     final checkLabel = powerDelayLabel(checkDelay);
     final confirmed =
-        confirmedBySiri ||
         await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: Text('$label ${pc.name}?'),
-                content: Text(
-                  command == 'shutdown'
-                      ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ $delayLabel để bạn có thể hủy.'
-                      : 'PC sẽ chuyển sang Sleep sau $delayLabel. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: Text('Hủy'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: Text(label),
-                  ),
-                ],
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('$label ${pc.name}?'),
+            content: Text(
+              command == 'shutdown'
+                  ? 'Lưu công việc trên PC trước khi tắt. Windows Agent sẽ chờ $delayLabel để bạn có thể hủy.'
+                  : 'PC sẽ chuyển sang Sleep sau $delayLabel. Bạn có thể bật lại bằng Wake-on-LAN nếu đã cấu hình.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Hủy'),
               ),
-            ) ==
-            true;
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(label),
+              ),
+            ],
+          ),
+        ) ==
+        true;
     if (!mounted || !confirmed) return 'The request was cancelled.';
     if (powerBusy.contains(pc.id) || waking.contains(pc.id)) {
       return 'A command for this PC is already in progress.';
@@ -311,19 +269,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (_) {
       storageError = true;
     }
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-      siri = SiriShortcuts(
-        store: widget.store,
-        network: widget.net,
-        agent: agent,
-        devices: () => pcs,
-        isBusy: (pc) => waking.contains(pc.id) || powerBusy.contains(pc.id),
-        execute: executeSiri,
-      );
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(connectSiri());
-      });
-    }
+    siriActivityVersion = widget.store.siriActivityVersion;
     refresh();
     statusTimer = Timer.periodic(Duration(seconds: 15), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
@@ -334,7 +280,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    unawaited(disconnectSiri());
     statusTimer?.cancel();
     for (final timer in powerTimers.values) {
       timer.cancel();
@@ -351,7 +296,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) refresh();
+    if (state == AppLifecycleState.resumed) unawaited(reloadAfterResume());
+  }
+
+  Future<void> reloadAfterResume() async {
+    if (reloadingStore) return;
+    reloadingStore = true;
+    try {
+      await widget.store.reload();
+      final latest = widget.store.read();
+      if (!mounted) return;
+      setState(() {
+        pcs = latest;
+        storageError = false;
+        if (siriActivityVersion != widget.store.siriActivityVersion) {
+          final id = widget.store.siriActivityPcId;
+          manuallyOnline.remove(id);
+          manuallyOffline.remove(id);
+          siriActivityVersion = widget.store.siriActivityVersion;
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => storageError = true);
+    } finally {
+      reloadingStore = false;
+    }
+    if (mounted) await refresh();
   }
 
   Future<void> refresh() async {
@@ -691,7 +661,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         powerDelay: powerDelayLabel(widget.store.powerDelaySeconds),
         deviceCount: pcs.length,
         canAddDevice: !storageError,
-        showSiri: siri != null,
+        showSiri: supportsSiri,
         onSelect: (value) => Navigator.pop(ctx, value),
       ),
     );

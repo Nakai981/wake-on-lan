@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +10,7 @@ import 'package:wake_my_pc/siri_shortcuts.dart';
 import 'package:wake_my_pc/siri_setup.dart';
 import 'package:wake_my_pc/siri_help.dart';
 import 'package:wake_my_pc/workspace.dart';
+import 'package:wake_my_pc/siri_background.dart';
 
 class HomeSiriNetwork extends NetworkService {
   int wakes = 0;
@@ -36,26 +35,6 @@ class HomeSiriAgent extends AgentClient {
     if (command == 'status') return 'online';
     return command == 'cancel' ? 'cancelled' : response;
   }
-}
-
-Future<dynamic> nativeCall(WidgetTester tester, String method, Map args) async {
-  const codec = StandardMethodCodec();
-  final reply = Completer<ByteData?>();
-  tester.binding.channelBuffers.push(
-    SiriShortcuts.channel.name,
-    codec.encodeMethodCall(MethodCall(method, args)),
-    reply.complete,
-  );
-  // Advance callbacks without waiting for ongoing wake/status animations.
-  for (var i = 0; i < 30 && !reply.isCompleted; i++) {
-    await tester.pump(const Duration(milliseconds: 20));
-  }
-  expect(
-    reply.isCompleted,
-    isTrue,
-    reason: 'Flutter must answer the native Siri call',
-  );
-  return codec.decodeEnvelope((await reply.future)!);
 }
 
 void main() {
@@ -170,32 +149,18 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
   }
-
-  for (final action in ['wake', 'sleep', 'shutdown']) {
-    testWidgets('native $action uses Home transport, history and power delay', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(430, 932);
+  testWidgets(
+    'Home reloads history and clears manual status after background Siri',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      final nativeCalls = <String>[];
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SiriShortcuts.channel,
-        (call) async {
-          nativeCalls.add(call.method);
-          return null;
-        },
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SiriShortcuts.channel,
-          null,
-        ),
-      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+      });
       SharedPreferences.setMockInitialValues({});
       final store = DeviceStore(await SharedPreferences.getInstance());
-      await store.savePowerDelay(30);
       await store.save([
         const Pc(
           id: 'studio',
@@ -212,92 +177,31 @@ void main() {
         WakeApp(store: store, network: network, agentClient: agent),
       );
       await tester.pumpAndSettle();
-      expect(nativeCalls, ['ready']);
-
-      var ticket =
-          await nativeCall(tester, 'prepare', {'action': action}) as Map;
-      expect(network.wakes, 0);
-      expect(agent.commands.where((command) => command != 'status'), isEmpty);
-      // This simulates declining Siri's confirmation before native execute.
-      await nativeCall(tester, 'discard', {'ticket': ticket['ticket']});
-      expect(store.history(), isEmpty);
-      ticket = await nativeCall(tester, 'prepare', {'action': action}) as Map;
-      final result = await nativeCall(tester, 'execute', {
-        'ticket': ticket['ticket'],
-      }) as String;
-      expect(
-        find.byType(AlertDialog),
-        findsNothing,
-        reason: 'Power confirmation has already been collected by native Siri',
-      );
-      if (action == 'wake') {
-        expect(network.wakes, 1);
-        expect(result, contains('wake signal was sent'));
-        expect(result, contains('does not confirm'));
-        expect(store.read().single.lastWake, isNotNull);
-        expect(store.history().single, contains('Đã gửi Wake'));
-      } else {
-        expect(
-          agent.commands.where((command) => command != 'status').single,
-          'power:$action:30',
-        );
-        expect(result, contains('scheduled in 30 seconds'));
-        expect(store.history().single, contains('chờ 30 giây'));
-        final cancel =
-            await nativeCall(tester, 'prepare', {'action': 'cancel'}) as Map;
-        expect(
-          await nativeCall(tester, 'execute', {'ticket': cancel['ticket']}),
-          'The pending power command was cancelled.',
-        );
-        expect(agent.commands, contains('cancel'));
-      }
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-      expect(nativeCalls.last, 'notReady');
-    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
-  }
-
-  for (final response in ['busy', 'simulated', 'unsupported']) {
-    testWidgets('Siri does not report success when Agent responds $response', (
-      tester,
-    ) async {
-      addTearDown(() async {
-        await tester.pumpWidget(const SizedBox());
-      });
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SiriShortcuts.channel,
-        (_) async => null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SiriShortcuts.channel,
-          null,
-        ),
-      );
-      SharedPreferences.setMockInitialValues({});
-      final store = DeviceStore(await SharedPreferences.getInstance());
-      await store.save([
-        const Pc(
-          id: 'studio',
-          name: 'Studio PC',
-          mac: 'A4:BB:6D:12:34:56',
-          ip: '192.168.1.10',
-          favorite: true,
-          agentPaired: true,
-        ),
-      ]);
-      final agent = HomeSiriAgent()..response = response;
-      await tester.pumpWidget(
-        WakeApp(store: store, network: HomeSiriNetwork(), agentClient: agent),
-      );
+      expect(find.text('Sleep'), findsOneWidget);
+      await tester.tap(find.text('Đánh dấu PC đã tắt'));
       await tester.pumpAndSettle();
-      final ticket =
-          await nativeCall(tester, 'prepare', {'action': 'shutdown'}) as Map;
-      final result = await nativeCall(tester, 'execute', {
-        'ticket': ticket['ticket'],
-      }) as String;
-      expect(result, isNot(contains('It is scheduled in')));
-      expect(store.history(), isEmpty);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
-  }
+      expect(find.text('BẬT PC'), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      final session = SiriBackgroundSession(
+        store: store,
+        network: network,
+        agent: agent,
+      );
+      final ticket = await session.shortcuts.handle(
+        const MethodCall('prepare', {'action': 'wake'}),
+      ) as Map;
+      await session.shortcuts.handle(
+        MethodCall('execute', {'ticket': ticket['ticket']}),
+      );
+      expect(find.text('BẬT PC'), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('Sleep'), findsOneWidget);
+      expect(store.history().single, contains('Siri'));
+      expect(store.read().single.lastWake, isNotNull);
+      expect(network.wakes, 1);
+      expect(agent.commands.where((command) => command != 'status'), isEmpty);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 }

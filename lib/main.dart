@@ -8,6 +8,20 @@ import 'screens.dart';
 import 'design.dart';
 import 'agent_client.dart';
 import 'app_theme.dart';
+import 'siri_background.dart';
+
+// Invoked by the iOS Siri engine without a FlutterViewController or runApp.
+@pragma('vm:entry-point')
+Future<void> siriBackgroundMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await startSiriBackground(DeviceStore(prefs));
+  } catch (_) {
+    await const MethodChannel('wake_my_pc/siri')
+        .invokeMethod<void>('initializationFailed');
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

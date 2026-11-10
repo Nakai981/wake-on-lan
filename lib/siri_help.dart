@@ -111,10 +111,16 @@ class SiriHelpContent extends StatelessWidget {
         ),
         heading('Khi chạy lệnh'),
         paragraph(
-          'Siri mở app và có thể yêu cầu mở khóa iPhone. Sleep, Shutdown và hủy lệnh '
+          'Siri gửi lệnh trong nền, không cần mở màn Home. iOS vẫn có thể yêu cầu mở khóa iPhone. '
+          'Lần đầu cần mở app để cấp quyền Local Network và hoàn tất ghép nối. Sleep, Shutdown và hủy lệnh '
           'cần Windows Agent đã ghép nối. Sleep và Shutdown cần '
           'xác nhận rồi mới gửi; dùng thời gian chờ đã lưu trong Không gian của bạn. '
           'Hủy lệnh chỉ thành công khi Agent còn liên lạc được và lệnh vẫn đang chờ.',
+        ),
+        const SizedBox(height: 12),
+        paragraph(
+          'Nếu phím tắt cá nhân có bước Open App / Mở ứng dụng, hãy bỏ bước đó '
+          'và chỉ giữ hành động điều khiển của Wake My PC.',
         ),
         const SizedBox(height: 12),
         paragraph(

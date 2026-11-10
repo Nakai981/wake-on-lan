@@ -1,30 +1,61 @@
 import Flutter
 import Foundation
 
-/// Foreground-only bridge. Requests are never persisted or retried on launch.
+/// Each Siri invocation owns a headless engine. No view controller is attached,
+/// and the engine is destroyed on success, failure or cancellation.
 @MainActor
 final class SiriBridge {
   static let shared = SiriBridge()
   private var channel: FlutterMethodChannel?
+  private var engine: FlutterEngine?
   private var isReady = false
   private var isRunning = false
+  private var initializationFailed = false
 
-  func attach(to messenger: FlutterBinaryMessenger) {
+  private func startBackgroundEngine() throws {
     isReady = false
-    let channel = FlutterMethodChannel(name: "wake_my_pc/siri", binaryMessenger: messenger)
+    initializationFailed = false
+    let engine = FlutterEngine(
+      name: "wake_my_pc.siri.\(UUID().uuidString)",
+      project: nil,
+      allowHeadlessExecution: true
+    )
+    self.engine = engine
+    guard engine.run(withEntrypoint: "siriBackgroundMain") else {
+      throw SiriBridgeError("The background session could not start. Open Wake My PC to finish setup, then ask Siri again.")
+    }
+    GeneratedPluginRegistrant.register(with: engine)
+    // Install handlers only after run; queued messages are delivered when this
+    // synchronous main-thread setup returns to the platform event loop.
+    let channel = FlutterMethodChannel(name: "wake_my_pc/siri", binaryMessenger: engine.binaryMessenger)
     self.channel = channel
-    channel.setMethodCallHandler { [weak self] call, result in
+    channel.setMethodCallHandler { [weak self, weak engine] call, result in
+      guard let self = self, let engine = engine, self.engine === engine else {
+        result(FlutterError(code: "expired_session", message: "This Siri session has ended.", details: nil))
+        return
+      }
       switch call.method {
       case "ready":
-        self?.isReady = true
+        self.isReady = true
         result(nil)
       case "notReady":
-        self?.isReady = false
+        self.isReady = false
+        result(nil)
+      case "initializationFailed":
+        self.initializationFailed = true
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  private func stopBackgroundEngine() {
+    channel?.setMethodCallHandler(nil)
+    channel = nil
+    isReady = false
+    engine?.destroyContext()
+    engine = nil
   }
 
   func run(
@@ -35,16 +66,21 @@ final class SiriBridge {
       throw SiriBridgeError("Another Siri request is in progress. Please wait for it to finish.")
     }
     isRunning = true
-    defer { isRunning = false }
+    defer {
+      stopBackgroundEngine()
+      isRunning = false
+    }
+    try Task.checkCancellation()
+    try startBackgroundEngine()
 
-    // openAppWhenRun launches Flutter; wait for Home to install its handler.
+    // Wait only for the headless Dart handler, never for Home or a scene.
     for _ in 0..<150 {
       try Task.checkCancellation()
-      if isReady { break }
+      if isReady || initializationFailed { break }
       try await Task.sleep(nanoseconds: 100_000_000)
     }
     guard isReady else {
-      throw SiriBridgeError("Wake My PC is not ready. Open the app, then ask Siri again.")
+      throw SiriBridgeError("The background session is not ready. Open Wake My PC to check setup and permissions, then ask Siri again.")
     }
     try Task.checkCancellation()
 

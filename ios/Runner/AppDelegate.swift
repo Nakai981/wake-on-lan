@@ -16,7 +16,6 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "WakeMyPcSiriSetup") {
       registrar.register(SiriSetupButtonFactory(), withId: "wake_my_pc/siri_setup_button")
     }
-    SiriBridge.shared.attach(to: engineBridge.applicationRegistrar.messenger())
     if #available(iOS 16.0, *) {
       PcAppShortcuts.updateAppShortcutParameters()
     }

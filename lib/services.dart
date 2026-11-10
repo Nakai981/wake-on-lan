@@ -12,6 +12,17 @@ import 'power_delay.dart';
 class DeviceStore {
   final SharedPreferences prefs;
   DeviceStore(this.prefs);
+  Future<void> reload() => prefs.reload();
+  int get siriActivityVersion => prefs.getInt('siriActivityVersion') ?? 0;
+  String? get siriActivityPcId => prefs.getString('siriActivityPcId');
+
+  Future<void> markSiriActivity(String pcId) async {
+    if (!await prefs.setString('siriActivityPcId', pcId) ||
+        !await prefs.setInt('siriActivityVersion', siriActivityVersion + 1)) {
+      throw const FileSystemException('Không lưu được hoạt động Siri.');
+    }
+  }
+
   int get powerDelaySeconds {
     final seconds = prefs.getInt('powerDelaySeconds') ?? defaultPowerDelay;
     return validPowerDelay(seconds) ? seconds : defaultPowerDelay;

@@ -5,7 +5,7 @@ import AppIntents
 struct WakePcIntent: AppIntent {
   static var title: LocalizedStringResource = "Turn on my PC"
   static var description = IntentDescription("Send Wake-on-LAN to your default PC on the local network.")
-  static var openAppWhenRun: Bool = true
+  static var openAppWhenRun: Bool = false
   static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
   @MainActor
@@ -19,7 +19,7 @@ struct WakePcIntent: AppIntent {
 struct SleepPcIntent: AppIntent {
   static var title: LocalizedStringResource = "Put my PC to sleep"
   static var description = IntentDescription("Ask for confirmation, then put your default PC to sleep using its paired Windows Agent.")
-  static var openAppWhenRun: Bool = true
+  static var openAppWhenRun: Bool = false
   static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
   @MainActor
@@ -35,7 +35,7 @@ struct SleepPcIntent: AppIntent {
 struct ShutdownPcIntent: AppIntent {
   static var title: LocalizedStringResource = "Shut down my PC"
   static var description = IntentDescription("Ask for confirmation, then shut down your default PC using its paired Windows Agent.")
-  static var openAppWhenRun: Bool = true
+  static var openAppWhenRun: Bool = false
   static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
   @MainActor
@@ -51,7 +51,7 @@ struct ShutdownPcIntent: AppIntent {
 struct CancelPcPowerIntent: AppIntent {
   static var title: LocalizedStringResource = "Cancel PC power command"
   static var description = IntentDescription("Cancel a pending sleep or shutdown command on your default PC, if Windows Agent can still cancel it.")
-  static var openAppWhenRun: Bool = true
+  static var openAppWhenRun: Bool = false
   static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
   @MainActor
