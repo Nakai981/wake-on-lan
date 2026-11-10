@@ -31,7 +31,7 @@ class SiriSetupCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Mở 4 hành động có sẵn của Wake My PC trong Shortcuts.',
+            'Bật, Sleep, tắt PC và hủy lệnh bằng giọng nói.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
@@ -46,7 +46,7 @@ class SiriSetupCard extends StatelessWidget {
           ),
           TextButton(
             onPressed: showHelp,
-            child: const Text('Câu lệnh & quyền truy cập'),
+            child: const Text('Hướng dẫn dùng Siri'),
           ),
         ],
       ),

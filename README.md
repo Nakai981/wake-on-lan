@@ -71,6 +71,9 @@ Thời gian chờ tùy chỉnh cần Agent được build từ mã nguồn hỗ 
 
 Ảnh minh họa được render từ widget với trạng thái giả lập; không phải bằng chứng PC vật lý đã bật/tắt.
 
+Giao diện Trợ giúp mới: [chế độ sáng](docs/help-light.png) · [chế độ tối](docs/help-dark.png).
+Hướng dẫn được chia theo chủ đề, dùng Be Vietnam Pro và hỗ trợ chữ phóng to.
+
 ## Bắt đầu với app Flutter
 
 ### Chuẩn bị
@@ -165,7 +168,9 @@ và đặt ngôn ngữ Siri thành **English**. Sleep/Shutdown/hủy cần Windo
 
 ### Mở thiết lập bằng một nút
 
-Trên **Home** của app iPhone, tìm thẻ **Thiết lập Siri** và bấm nút **Shortcuts**.
+Trong app iPhone, bấm nút **ba chấm → Không gian của bạn**, cuộn tới thẻ
+**Thiết lập Siri** rồi bấm nút **Shortcuts**. Thẻ không còn nằm trên Home.
+Menu có thanh cuộn và tiêu đề cố định để dùng được trên màn hình nhỏ.
 Nút dùng [`ShortcutsUIButton` của Apple](https://developer.apple.com/documentation/appintents/shortcutsuibutton)
 để mở thẳng trang **Wake My PC** trong Shortcuts, với bốn hành động đã cấu hình sẵn:
 **PC On**, **PC Sleep**, **PC Off**, **Cancel PC**. Không cần tự tìm app trong danh sách hành động.
@@ -190,7 +195,9 @@ Lặp lại để có bốn phím tắt cá nhân, mỗi phím tắt chứa mộ
 | **Cancel PC** | Cancel PC power command | “Siri, Cancel PC.” |
 
 Các tên ngắn cần được tạo trong Shortcuts trên iPhone; app không tự tạo phím tắt cá nhân
-hoặc tự cấp quyền thay người dùng. Trong menu app iOS, mở **Siri · English commands** để xem lại hướng dẫn.
+hoặc tự cấp quyền thay người dùng. Mở **Trợ giúp → Siri trên iPhone** để xem hướng dẫn
+thiết lập, câu lệnh, quyền Shortcuts và cách xử lý khi lệnh chưa chạy.
+Liên kết **Hướng dẫn dùng Siri** trên thẻ thiết lập cũng mở thẳng chủ đề này.
 
 Nếu chưa tạo phím tắt cá nhân, dùng các câu App Shortcut đăng ký sẵn:
 
@@ -293,10 +300,10 @@ Chạy riêng các kiểm thử Siri và lệnh nguồn:
 flutter test test/siri_shortcuts_test.dart test/siri_home_test.dart test/power_ui_test.dart test/power_delay_test.dart
 ```
 
-**Kết quả kiểm tra ngày 10/11/2026:** 31 kiểm thử liên quan Siri/lệnh nguồn đạt,
-gồm kiểm tra thẻ thiết lập Siri ở chiều rộng 320 và 430 pixel;
-analyzer không báo vấn đề trong các tệp tích hợp Siri đã thay đổi.
-Lần chạy toàn bộ trước khi thêm thẻ thiết lập Siri có 59 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
+**Kết quả kiểm tra ngày 10/11/2026:** 38 kiểm thử liên quan Siri, lệnh nguồn, điều hướng
+và giao diện Trợ giúp đạt. Có kiểm tra menu ở chiều rộng 320/430 pixel, chữ phóng to 160%,
+hai giao diện sáng/tối và độ tương phản chữ câu lệnh. Analyzer không báo vấn đề trong các tệp đã thay đổi.
+Lần chạy toàn bộ có 65 kiểm thử đạt và 10 kiểm thử lỗi; đối chiếu mã trước thay đổi
 Siri xác nhận cả 10 lỗi đã có sẵn trong các luồng QR/onboarding, Home và điều khiển.
 Các kiểm thử Siri dùng mô phỏng kênh native/mạng/Agent, chưa xác minh nhận giọng nói hoặc biên dịch Swift.
 

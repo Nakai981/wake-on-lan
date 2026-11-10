@@ -10,6 +10,8 @@ import 'package:wake_my_pc/models.dart';
 import 'package:wake_my_pc/services.dart';
 import 'package:wake_my_pc/siri_shortcuts.dart';
 import 'package:wake_my_pc/siri_setup.dart';
+import 'package:wake_my_pc/siri_help.dart';
+import 'package:wake_my_pc/workspace.dart';
 
 class HomeSiriNetwork extends NetworkService {
   int wakes = 0;
@@ -74,7 +76,7 @@ void main() {
 
   for (final width in [320.0, 430.0]) {
     testWidgets(
-      'Home embeds Siri setup without sending PC commands at $width',
+      'workspace owns Siri setup and links to Help without PC commands at $width',
       (tester) async {
         tester.view.physicalSize = Size(width, 932);
         tester.view.devicePixelRatio = 1;
@@ -108,7 +110,28 @@ void main() {
           WakeApp(store: store, network: network, agentClient: agent),
         );
         await tester.pumpAndSettle();
+        expect(find.text('Thiết lập Siri'), findsNothing);
+        expect(find.byType(UiKitView), findsNothing);
+        await tester.tap(find.byTooltip('Mở menu'));
+        await tester.pumpAndSettle();
+        final headerPosition = tester.getTopLeft(
+          find.text('Không gian của bạn'),
+        );
+        final workspaceScroll = find.descendant(
+          of: find.byKey(WorkspaceSheet.scrollKey),
+          matching: find.byType(Scrollable),
+        );
+        await tester.scrollUntilVisible(
+          find.text('Thiết lập Siri'),
+          150,
+          scrollable: workspaceScroll,
+        );
+        await tester.pumpAndSettle();
         expect(find.text('Thiết lập Siri'), findsOneWidget);
+        expect(
+          tester.getTopLeft(find.text('Không gian của bạn')),
+          headerPosition,
+        );
         expect(
           tester.widget<UiKitView>(find.byType(UiKitView)).viewType,
           SiriSetupCard.viewType,
@@ -127,10 +150,17 @@ void main() {
         expect(network.wakes, 0);
         expect(agent.commands.where((command) => command != 'status'), isEmpty);
         expect(store.history(), isEmpty);
-        await tester.ensureVisible(find.text('Câu lệnh & quyền truy cập'));
-        await tester.tap(find.text('Câu lệnh & quyền truy cập'));
+        await tester.scrollUntilVisible(
+          find.text('Hướng dẫn dùng Siri'),
+          100,
+          scrollable: workspaceScroll,
+        );
         await tester.pumpAndSettle();
-        expect(find.text('Siri · English commands'), findsOneWidget);
+        await tester.tap(find.text('Hướng dẫn dùng Siri'));
+        await tester.pumpAndSettle();
+        expect(find.text('Hướng dẫn sử dụng'), findsOneWidget);
+        expect(find.byType(SiriHelpContent), findsOneWidget);
+        expect(find.text('Không gian của bạn'), findsNothing);
         expect(network.wakes, 0);
         expect(agent.commands.where((command) => command != 'status'), isEmpty);
         expect(tester.takeException(), isNull);

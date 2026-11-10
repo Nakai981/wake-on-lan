@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wake_my_pc/main.dart';
 import 'package:wake_my_pc/models.dart';
 import 'package:wake_my_pc/services.dart';
+import 'package:wake_my_pc/workspace.dart';
 
 class UiNetwork extends NetworkService {
   @override
@@ -37,6 +38,15 @@ void main() {
     }
     await tester.tap(find.byTooltip('Mở menu'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Lịch sử hoạt động'),
+      150,
+      scrollable: find.descendant(
+        of: find.byKey(WorkspaceSheet.scrollKey),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Lịch sử hoạt động'));
     await tester.pumpAndSettle();
     expect(find.text('Một khởi đầu mới'), findsOneWidget);
@@ -46,11 +56,18 @@ void main() {
     }
     await tester.tap(find.byTooltip('Mở menu'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Hướng dẫn & trợ giúp'));
+    await tester.scrollUntilVisible(
+      find.text('Hướng dẫn & trợ giúp'),
+      150,
+      scrollable: find.descendant(
+        of: find.byKey(WorkspaceSheet.scrollKey),
+        matching: find.byType(Scrollable),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Hướng dẫn & trợ giúp'));
     await tester.pumpAndSettle();
-    expect(find.text('Luôn có lời giải'), findsOneWidget);
+    expect(find.text('Hướng dẫn sử dụng'), findsOneWidget);
     // Framework reports any layout errors at test completion.
   });
   testWidgets('favorites filter and device action sheet remain functional', (

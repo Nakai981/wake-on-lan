@@ -14,11 +14,11 @@ import 'remote_control.dart';
 import 'app_theme.dart';
 import 'power_confirmation_effect.dart';
 import 'wake_console.dart';
-import 'agent_help.dart';
 import 'power_delay.dart';
 import 'power_delay_settings.dart';
 import 'siri_shortcuts.dart';
-import 'siri_setup.dart';
+import 'help.dart';
+import 'workspace.dart';
 
 String stamp(DateTime date) =>
     '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} · ${date.day}/${date.month}';
@@ -51,6 +51,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, Timer> powerTimers = {};
   final Set<String> cancelledPower = {};
   SiriShortcuts? siri;
+  bool showSiriGuide = false;
 
   Future<String> executeSiri(String action, Pc pc, int delay) {
     switch (action) {
@@ -478,6 +479,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       statuses[pc.id] = 'Chưa bật · xác nhận thủ công';
       wakeHelp =
           '${pc.name}: bạn xác nhận PC chưa được bật. Kiểm tra nguồn, Ethernet, MAC, BIOS và Windows theo hướng dẫn bên dưới.';
+      showSiriGuide = false;
       tab = 2;
     });
   }
@@ -681,179 +683,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ),
   );
 
-  Future<void> showSiriHelp() => showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Siri · English commands'),
-      scrollable: true,
-      content: const SelectableText(
-        'Requires iOS 16 or later and Siri set to English.\n\n'
-        'Select one default PC using the star in the device list. '
-        'Connect to the same Wi-Fi and allow Local Network access.\n\n'
-        'Quick setup:\n'
-        'Tap the Shortcuts button under “Thiết lập Siri” on Home. '
-        'It opens the Wake My PC page with PC On, PC Sleep, PC Off and Cancel PC ready to use. '
-        'This does not run a PC command or automatically save personal shortcut names.\n\n'
-        'Short voice commands:\n'
-        'In Shortcuts, create a personal shortcut → Add Action → Apps → Wake My PC. '
-        'Repeat for the four actions below. '
-        'Use one app action in each shortcut and name it as follows:\n\n'
-        'PC On → Turn on my PC\n'
-        'PC Sleep → Put my PC to sleep\n'
-        'PC Off → Shut down my PC\n'
-        'Cancel PC → Cancel PC power command\n\n'
-        'Then say “Siri, PC On”, “Siri, PC Sleep”, '
-        '“Siri, PC Off” or “Siri, Cancel PC”. '
-        'These names work after you create the personal shortcuts.\n\n'
-        'Before using Siri, run each personal shortcut once in Shortcuts. '
-        'If an access prompt offers Always Allow, choose it to remember that permission. '
-        'The app cannot approve or suppress Shortcuts or iOS permission prompts.\n\n'
-        'Without personal shortcuts, say:\n'
-        '“Siri, wake with Wake My PC.”\n'
-        '“Siri, sleep with Wake My PC.”\n'
-        '“Siri, shut down with Wake My PC.”\n'
-        '“Siri, cancel power with Wake My PC.”\n\n'
-        'Siri opens the app and may ask you to unlock your iPhone. '
-        'Sleep and shutdown require your confirmation and a paired Windows Agent. '
-        'They use your saved power delay. Cancellation only works while the command is still pending.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Done'),
-        ),
-      ],
-    ),
-  );
-
   Future<void> openMenu() async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconTile(Icons.power_settings_new_rounded),
-                  SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      'Không gian của bạn',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 24),
-              menuRow(
-                ctx,
-                'powerDelay',
-                Icons.timer_outlined,
-                'Thời gian chờ tắt / Sleep',
-                'Dùng chung · ${powerDelayLabel(widget.store.powerDelaySeconds)}',
-              ),
-              menuRow(
-                ctx,
-                'controls',
-                Icons.touch_app_rounded,
-                'Điều khiển',
-                'Touchpad · Touch Bar · Bàn phím',
-              ),
-              if (siri != null)
-                menuRow(
-                  ctx,
-                  'siri',
-                  Icons.mic_none_rounded,
-                  'Siri · English commands',
-                  'Turn on · Sleep · Shut down · Cancel',
-                ),
-              menuRow(
-                ctx,
-                'add',
-                Icons.add_rounded,
-                'Thêm máy tính',
-                'Thiết lập một PC mới',
-                enabled: !storageError,
-              ),
-              menuRow(
-                ctx,
-                'devices',
-                Icons.dashboard_outlined,
-                'Máy tính của tôi',
-                '${pcs.length} thiết bị đã lưu',
-              ),
-              menuRow(
-                ctx,
-                'history',
-                Icons.history_rounded,
-                'Lịch sử hoạt động',
-                'Các lần gửi tín hiệu gần đây',
-              ),
-              menuRow(
-                ctx,
-                'refresh',
-                Icons.wifi_find_rounded,
-                'Kiểm tra kết nối',
-                'Cập nhật mạng và trạng thái PC',
-              ),
-              menuRow(
-                ctx,
-                'help',
-                Icons.auto_stories_outlined,
-                'Hướng dẫn & trợ giúp',
-                'Thiết lập, kết nối và khắc phục lỗi',
-              ),
-              SizedBox(height: 18),
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.shield_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                      size: 20,
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Riêng tư từ thiết kế.\nKhông tài khoản, không máy chủ.',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontSize: 12,
-                          height: 1.6,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 20),
-              Center(
-                child: Text(
-                  'WAKE MY PC  /  1.0',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 10,
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (ctx) => WorkspaceSheet(
+        powerDelay: powerDelayLabel(widget.store.powerDelaySeconds),
+        deviceCount: pcs.length,
+        canAddDevice: !storageError,
+        showSiri: siri != null,
+        onSelect: (value) => Navigator.pop(ctx, value),
       ),
     );
     if (!mounted || choice == null) return;
@@ -872,8 +711,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       case 'controls':
         await openControls();
-      case 'siri':
-        await showSiriHelp();
+      case 'siriHelp':
+        setState(() {
+          showSiriGuide = true;
+          tab = 2;
+        });
       case 'add':
         await edit();
       case 'devices':
@@ -891,7 +733,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         );
       case 'help':
-        setState(() => tab = 2);
+        setState(() {
+          showSiriGuide = false;
+          tab = 2;
+        });
       case 'refresh':
         await refresh();
     }
@@ -1092,7 +937,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   child: tab == 1
                       ? deviceList()
                       : tab == 2
-                      ? HelpContent(key: ValueKey('help'), notice: wakeHelp)
+                      ? HelpContent(
+                          key: ValueKey('help-$showSiriGuide'),
+                          openSiri: showSiriGuide,
+                          notice: wakeHelp,
+                        )
                       : controlHome(pc, online),
                 ),
               ),
@@ -1117,6 +966,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         selectedIndex: tab,
         onDestinationSelected: (value) => setState(() {
           tab = value;
+          if (value == 2) showSiriGuide = false;
           confirmationEffect = 0;
         }),
         labelTextStyle: WidgetStateProperty.resolveWith(
@@ -1423,10 +1273,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     style: TextButton.styleFrom(foregroundColor: secondary),
                     child: Text('Đổi máy tính', style: TextStyle(fontSize: 12)),
                   ),
-                ],
-                if (siri != null) ...[
-                  const SizedBox(height: 24),
-                  SiriSetupCard(showHelp: showSiriHelp),
                 ],
               ],
             ),
@@ -2072,152 +1918,4 @@ class DiagnosticsPage extends StatelessWidget {
       },
     ),
   );
-}
-
-class HelpContent extends StatelessWidget {
-  final bool embedded;
-  final String? notice;
-  const HelpContent({super.key, this.embedded = false, this.notice});
-  @override
-  Widget build(BuildContext context) {
-    const guides = {
-      'Wake-on-LAN là gì?': 'Bật máy tính bằng tín hiệu gửi qua mạng nội bộ. PC cần còn cắm nguồn và card mạng hỗ trợ Wake-on-LAN. Bản này sử dụng Wi-Fi cùng mạng với PC, chưa hỗ trợ bật từ 4G/5G.',
-      '1. Chuẩn bị BIOS / UEFI': 'Vào BIOS / UEFI của PC, tìm Wake on LAN, Power On by PCI-E hoặc Resume by LAN và bật. Tên mục khác nhau theo hãng và model. Chế độ ErP / Deep Sleep có thể ngắt nguồn card mạng khi tắt máy; kiểm tra hướng dẫn của nhà sản xuất.',
-      '2. Thiết lập Windows': 'Mở Device Manager → Network adapters → card Ethernet → Properties. Trong Advanced, bật Wake on Magic Packet nếu có. Trong Power Management, cho phép thiết bị đánh thức máy và chỉ đánh thức bằng Magic Packet. Khả năng bật từ trạng thái tắt hoàn toàn phụ thuộc phần cứng và driver; hãy thử Sleep trước.',
-      '3. Cách tìm MAC và IP': 'Trên PC Windows, mở Command Prompt và nhập ipconfig /all. Tìm card Ethernet đang cắm dây: Physical Address là MAC, IPv4 Address là IP. Nhập MAC theo dạng AA-BB-CC-DD-EE-FF hoặc AA:BB:CC:DD:EE:FF. Không dùng MAC của adapter VPN.',
-      'Không tìm thấy PC khi quét?': 'Giữ PC đang bật, cùng mạng Wi-Fi/LAN và tránh Wi-Fi khách. Router không được bật Client Isolation. Bộ quét chỉ tìm thiết bị phản hồi trên cổng 445, 3389, 22 hoặc 80; firewall có thể chặn. Bạn luôn có thể thêm thủ công.',
-      'Đã gửi tín hiệu nhưng máy chưa bật?': 'Kiểm tra PC còn cắm nguồn và dây LAN, BIOS và card mạng đã bật Wake-on-LAN. Kiểm tra đúng MAC Ethernet. Đã gửi tín hiệu không có nghĩa PC đã bật; app chỉ xác nhận khi nhận được phản hồi kết nối.',
-      'Quyền mạng và quyền riêng tư': 'Trên iPhone, cho phép Mạng cục bộ khi hệ thống hỏi; nếu đã từ chối, bật lại trong Cài đặt → Quyền riêng tư & Bảo mật → Mạng cục bộ. Máy tính và lịch sử chỉ được lưu trên thiết bị. App không cần tài khoản.',
-    };
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (notice != null)
-          Container(
-            margin: EdgeInsets.only(bottom: 20),
-            padding: EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Color(0xFFFFF5E2),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Text(
-              notice!,
-              style: TextStyle(color: Color(0xFF805510), height: 1.6),
-            ),
-          ),
-        if (!embedded) ...[
-          SectionTitle('Luôn có lời giải', 'Thiết lập một lần. Dùng mỗi ngày.'),
-          Container(
-            padding: EdgeInsets.all(20),
-            margin: EdgeInsets.only(bottom: 24),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Row(
-              children: [
-                IconTile(
-                  Icons.tips_and_updates_outlined,
-                  background: Colors.white,
-                  size: 46,
-                ),
-                SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Mới với Wake-on-LAN?',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                      SizedBox(height: 5),
-                      Text(
-                        'Bắt đầu với hướng dẫn bên dưới.',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            'HƯỚNG DẪN & GIẢI ĐÁP',
-            style: TextStyle(
-              fontSize: 10,
-              letterSpacing: 2,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          SizedBox(height: 14),
-        ],
-        const Card(
-          child: ExpansionTile(
-            leading: Icon(Icons.desktop_windows_rounded),
-            title: Text('Windows Agent · Tải xuống & quyền riêng tư'),
-            children: [
-              Padding(padding: EdgeInsets.all(18), child: AgentHelpContent()),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...guides.entries.indexed.map(
-          (item) => Padding(
-            padding: EdgeInsets.only(bottom: 10),
-            child: Card(
-              child: ExpansionTile(
-                shape: Border(),
-                collapsedShape: Border(),
-                tilePadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                leading: Icon(
-                  [
-                    Icons.bolt_outlined,
-                    Icons.memory_rounded,
-                    Icons.window_rounded,
-                    Icons.fingerprint_rounded,
-                    Icons.wifi_find_rounded,
-                    Icons.power_settings_new_rounded,
-                    Icons.shield_outlined,
-                  ][item.$1],
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 21,
-                ),
-                title: Text(
-                  item.$2.key,
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(18, 0, 18, 20),
-                    child: Text(
-                      item.$2.value,
-                      style: TextStyle(
-                        height: 1.7,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-    return embedded
-        ? content
-        : SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(22, 12, 22, 24),
-            child: content,
-          );
-  }
 }
